@@ -30,124 +30,101 @@ export interface ItemInput {
   userId: number
 }
 
-let items: Item[] = [
-  {
-    id: 1,
-    title: 'Kopfhörer',
-    description: 'Schwarze Bluetooth-Kopfhörer in der Bibliothek gefunden.',
-    type: 'FOUND',
-    category: 'Elektronik',
-    location: 'Bibliothek',
-    date: '2026-04-01',
-    status: 'OPEN',
-    user: {
-      id: 1,
-      name: 'Max Mustermann',
-      email: 'max@example.com',
-    },
-  },
-  {
-    id: 2,
-    title: 'Rucksack',
-    description: 'Blauer Rucksack mit Laptopfach in der Mensa verloren.',
-    type: 'LOST',
-    category: 'Tasche',
-    location: 'Mensa',
-    date: '2026-04-02',
-    status: 'IN_PROGRESS',
-    user: {
-      id: 2,
-      name: 'Dennis Müller',
-      email: 'dennis@example.com',
-    },
-  },
-]
+const API_URL = 'http://localhost:8080/api/items'
 
 export const users: User[] = [
   {
     id: 1,
     name: 'Max Mustermann',
-    email: 'max@example.com',
+    email: 'max.mustermann@htwg-konstanz.de',
   },
   {
     id: 2,
     name: 'Dennis Müller',
-    email: 'dennis@example.com',
+    email: 'dennis.mueller@htwg-konstanz.de',
   },
 ]
 
-export function getItems() {
-  return [...items]
-}
-
-export function getItemById(id: number) {
-  return items.find((item) => item.id === id)
-}
-
-export function createItem(input: ItemInput) {
-  const user = users.find((user) => user.id === input.userId) ?? users[0]
-
-  const newItem: Item = {
-    id: Math.max(0, ...items.map((item) => item.id)) + 1,
-    title: input.title,
-    description: input.description,
-    type: input.type,
-    category: input.category,
-    location: input.location,
-    date: input.date,
-    status: input.status,
-    user,
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    throw new Error(`API request failed with status ${response.status}`)
   }
 
-  items = [newItem, ...items]
-  return newItem
+  return response.json()
 }
 
-export function updateItem(id: number, input: ItemInput) {
-  const user = users.find((user) => user.id === input.userId) ?? users[0]
+export async function getItems(): Promise<Item[]> {
+  return handleResponse<Item[]>(await fetch(API_URL))
+}
 
-  items = items.map((item) =>
-    item.id === id
-      ? {
-          ...item,
-          title: input.title,
-          description: input.description,
-          type: input.type,
-          category: input.category,
-          location: input.location,
-          date: input.date,
-          status: input.status,
-          user,
-        }
-      : item,
+export async function getItemById(id: number): Promise<Item> {
+  return handleResponse<Item>(await fetch(`${API_URL}/${id}`))
+}
+
+export async function createItem(input: ItemInput): Promise<Item> {
+  return handleResponse<Item>(
+    await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    }),
   )
-
-  return getItemById(id)
 }
 
-export function deleteItem(id: number) {
-  items = items.filter((item) => item.id !== id)
+export async function updateItem(id: number, input: ItemInput): Promise<Item> {
+  return handleResponse<Item>(
+    await fetch(`${API_URL}/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    }),
+  )
 }
 
-export function searchAndFilterItems(options: {
+export async function deleteItem(id: number): Promise<void> {
+  const response = await fetch(`${API_URL}/${id}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error(`API request failed with status ${response.status}`)
+  }
+}
+
+export async function searchAndFilterItems(options: {
   query?: string
   type?: string
   category?: string
   status?: string
-}) {
-  const query = options.query?.trim().toLowerCase() ?? ''
+}): Promise<Item[]> {
+  const params = new URLSearchParams()
 
-  return items.filter((item) => {
-    const matchesQuery =
-      !query ||
-      item.title.toLowerCase().includes(query) ||
-      item.description.toLowerCase().includes(query) ||
-      item.location.toLowerCase().includes(query)
+  if (options.type) {
+    params.append('type', options.type)
+  }
 
-    const matchesType = !options.type || item.type === options.type
-    const matchesCategory = !options.category || item.category === options.category
-    const matchesStatus = !options.status || item.status === options.status
+  if (options.category) {
+    params.append('category', options.category)
+  }
 
-    return matchesQuery && matchesType && matchesCategory && matchesStatus
-  })
+  if (options.status) {
+    params.append('status', options.status)
+  }
+
+  const hasFilters = params.toString().length > 0
+
+  if (hasFilters) {
+    return handleResponse<Item[]>(await fetch(`${API_URL}/filter?${params.toString()}`))
+  }
+
+  if (options.query?.trim()) {
+    params.append('query', options.query.trim())
+    return handleResponse<Item[]>(await fetch(`${API_URL}/search?${params.toString()}`))
+  }
+
+  return getItems()
 }

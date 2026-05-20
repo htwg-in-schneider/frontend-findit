@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createItem,
@@ -14,6 +14,9 @@ import {
 const route = useRoute()
 const router = useRouter()
 
+const isLoading = ref(false)
+const errorMessage = ref('')
+
 const itemId = computed(() => {
   const id = route.params.id
 
@@ -26,23 +29,15 @@ const itemId = computed(() => {
 
 const isEditMode = computed(() => itemId.value !== null)
 
-const existingItem = computed(() => {
-  if (itemId.value === null) {
-    return null
-  }
-
-  return getItemById(itemId.value)
-})
-
 const form = reactive<ItemInput>({
-  title: existingItem.value?.title ?? '',
-  description: existingItem.value?.description ?? '',
-  type: existingItem.value?.type ?? 'FOUND',
-  category: existingItem.value?.category ?? 'Elektronik',
-  location: existingItem.value?.location ?? '',
-  date: existingItem.value?.date ?? new Date().toISOString().slice(0, 10),
-  status: existingItem.value?.status ?? 'OPEN',
-  userId: existingItem.value?.user.id ?? users[0].id,
+  title: '',
+  description: '',
+  type: 'FOUND',
+  category: 'Elektronik',
+  location: '',
+  date: new Date().toISOString().slice(0, 10),
+  status: 'OPEN',
+  userId: users[0].id,
 })
 
 const pageTitle = computed(() => {
@@ -51,24 +46,61 @@ const pageTitle = computed(() => {
 
 const pageDescription = computed(() => {
   return isEditMode.value
-    ? 'Passe die Daten des Eintrags an. Änderungen werden in der Übersicht aktualisiert.'
+    ? 'Passe die Daten des Eintrags an. Änderungen werden direkt im Backend gespeichert.'
     : 'Erfasse einen verlorenen oder gefundenen Gegenstand mit den wichtigsten Informationen.'
 })
 
-function submitForm() {
+async function loadExistingItem() {
+  if (!isEditMode.value || itemId.value === null) {
+    return
+  }
+
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    const item = await getItemById(itemId.value)
+
+    form.title = item.title
+    form.description = item.description
+    form.type = item.type
+    form.category = item.category
+    form.location = item.location
+    form.date = item.date
+    form.status = item.status
+    form.userId = item.user.id
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Der Eintrag konnte nicht geladen werden.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function submitForm() {
   if (!form.title.trim() || !form.description.trim() || !form.location.trim()) {
     alert('Bitte fülle Titel, Beschreibung und Ort aus.')
     return
   }
 
-  if (isEditMode.value && itemId.value !== null) {
-    updateItem(itemId.value, form)
-    router.push(`/items/${itemId.value}`)
-    return
-  }
+  isLoading.value = true
+  errorMessage.value = ''
 
-  const newItem = createItem(form)
-  router.push(`/items/${newItem.id}`)
+  try {
+    if (isEditMode.value && itemId.value !== null) {
+      const updatedItem = await updateItem(itemId.value, form)
+      router.push(`/items/${updatedItem.id}`)
+      return
+    }
+
+    const newItem = await createItem(form)
+    router.push(`/items/${newItem.id}`)
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = 'Der Eintrag konnte nicht gespeichert werden.'
+  } finally {
+    isLoading.value = false
+  }
 }
 
 function typeLabel(type: ItemType) {
@@ -84,6 +116,8 @@ function statusLabel(status: ItemStatus) {
 
   return labels[status]
 }
+
+onMounted(loadExistingItem)
 </script>
 
 <template>
@@ -97,7 +131,15 @@ function statusLabel(status: ItemStatus) {
         </p>
       </div>
 
-      <form class="card item-form" @submit.prevent="submitForm">
+      <div v-if="errorMessage" class="card error-box">
+        {{ errorMessage }}
+      </div>
+
+      <div v-if="isLoading && isEditMode" class="card loading-box">
+        Eintrag wird geladen...
+      </div>
+
+      <form v-else class="card item-form" @submit.prevent="submitForm">
         <div class="form-grid">
           <div class="form-group">
             <label for="title">Titel</label>
@@ -173,7 +215,7 @@ function statusLabel(status: ItemStatus) {
         </div>
 
         <div class="actions form-actions">
-          <button type="submit" class="btn-primary">
+          <button type="submit" class="btn-primary" :disabled="isLoading">
             {{ isEditMode ? 'Änderungen speichern' : 'Eintrag erstellen' }}
           </button>
 
@@ -212,6 +254,22 @@ function statusLabel(status: ItemStatus) {
 
 .form-actions {
   margin-top: 24px;
+}
+
+.error-box {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.loading-box {
+  text-align: center;
+  color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 @media (max-width: 780px) {

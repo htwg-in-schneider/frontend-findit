@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   deleteItem,
@@ -15,32 +15,55 @@ const selectedType = ref('')
 const selectedCategory = ref('')
 const selectedStatus = ref('')
 
-const items = ref<Item[]>(getItems())
+const items = ref<Item[]>([])
+const isLoading = ref(false)
+const errorMessage = ref('')
 
 const categories = computed(() => {
-  return [...new Set(getItems().map((item) => item.category))]
+  return [...new Set(items.value.map((item) => item.category))]
 })
 
-const filteredItems = computed(() => {
-  items.value
+async function loadItems() {
+  isLoading.value = true
+  errorMessage.value = ''
 
-  return searchAndFilterItems({
-    query: query.value,
-    type: selectedType.value,
-    category: selectedCategory.value,
-    status: selectedStatus.value,
-  })
-})
+  try {
+    items.value = await searchAndFilterItems({
+      query: query.value,
+      type: selectedType.value,
+      category: selectedCategory.value,
+      status: selectedStatus.value,
+    })
+  } catch (error) {
+    console.error(error)
+    errorMessage.value =
+      'Die Einträge konnten nicht geladen werden. Bitte prüfe, ob das Backend auf Port 8080 läuft.'
+  } finally {
+    isLoading.value = false
+  }
+}
 
-function handleDelete(id: number) {
+async function handleDelete(id: number) {
   const confirmed = confirm('Möchtest du diesen Eintrag wirklich löschen?')
 
   if (!confirmed) {
     return
   }
 
-  deleteItem(id)
-  items.value = getItems()
+  try {
+    await deleteItem(id)
+    await loadItems()
+  } catch (error) {
+    console.error(error)
+    alert('Der Eintrag konnte nicht gelöscht werden.')
+  }
+}
+
+function resetFilters() {
+  query.value = ''
+  selectedType.value = ''
+  selectedCategory.value = ''
+  selectedStatus.value = ''
 }
 
 function typeLabel(type: ItemType) {
@@ -70,6 +93,12 @@ function statusBadgeClass(status: ItemStatus) {
 
   return classes[status]
 }
+
+onMounted(loadItems)
+
+watch([query, selectedType, selectedCategory, selectedStatus], () => {
+  loadItems()
+})
 </script>
 
 <template>
@@ -129,69 +158,85 @@ function statusBadgeClass(status: ItemStatus) {
             </select>
           </div>
         </div>
+
+        <div class="actions filter-actions">
+          <button type="button" class="btn-secondary" @click="resetFilters">
+            Filter zurücksetzen
+          </button>
+        </div>
       </div>
 
-      <div class="results-info">
-        <strong>{{ filteredItems.length }}</strong>
-        Einträge gefunden
+      <div v-if="errorMessage" class="card error-box">
+        {{ errorMessage }}
       </div>
 
-      <div v-if="filteredItems.length > 0" class="items-grid">
-        <article v-for="item in filteredItems" :key="item.id" class="card item-card">
-          <div class="item-card-header">
-            <span class="badge" :class="typeBadgeClass(item.type)">
-              {{ typeLabel(item.type) }}
-            </span>
-
-            <span class="badge" :class="statusBadgeClass(item.status)">
-              {{ statusLabel(item.status) }}
-            </span>
-          </div>
-
-          <h2>{{ item.title }}</h2>
-
-          <p class="description">
-            {{ item.description }}
-          </p>
-
-          <dl class="item-meta">
-            <div>
-              <dt>Kategorie</dt>
-              <dd>{{ item.category }}</dd>
-            </div>
-
-            <div>
-              <dt>Ort</dt>
-              <dd>{{ item.location }}</dd>
-            </div>
-
-            <div>
-              <dt>Datum</dt>
-              <dd>{{ item.date }}</dd>
-            </div>
-
-            <div>
-              <dt>Gemeldet von</dt>
-              <dd>{{ item.user.name }}</dd>
-            </div>
-          </dl>
-
-          <div class="actions">
-            <RouterLink :to="`/items/${item.id}`" class="btn-secondary">Details</RouterLink>
-            <RouterLink :to="`/items/${item.id}/edit`" class="btn-secondary">
-              Bearbeiten
-            </RouterLink>
-            <button type="button" class="btn-danger" @click="handleDelete(item.id)">
-              Löschen
-            </button>
-          </div>
-        </article>
+      <div v-if="isLoading" class="card loading-box">
+        Einträge werden geladen...
       </div>
 
-      <div v-else class="card empty-state">
-        <h2>Keine passenden Einträge gefunden</h2>
-        <p>Ändere deine Suche oder deine Filter, um weitere Ergebnisse zu sehen.</p>
-      </div>
+      <template v-else>
+        <div class="results-info">
+          <strong>{{ items.length }}</strong>
+          Einträge gefunden
+        </div>
+
+        <div v-if="items.length > 0" class="items-grid">
+          <article v-for="item in items" :key="item.id" class="card item-card">
+            <div class="item-card-header">
+              <span class="badge" :class="typeBadgeClass(item.type)">
+                {{ typeLabel(item.type) }}
+              </span>
+
+              <span class="badge" :class="statusBadgeClass(item.status)">
+                {{ statusLabel(item.status) }}
+              </span>
+            </div>
+
+            <h2>{{ item.title }}</h2>
+
+            <p class="description">
+              {{ item.description }}
+            </p>
+
+            <dl class="item-meta">
+              <div>
+                <dt>Kategorie</dt>
+                <dd>{{ item.category }}</dd>
+              </div>
+
+              <div>
+                <dt>Ort</dt>
+                <dd>{{ item.location }}</dd>
+              </div>
+
+              <div>
+                <dt>Datum</dt>
+                <dd>{{ item.date }}</dd>
+              </div>
+
+              <div>
+                <dt>Gemeldet von</dt>
+                <dd>{{ item.user.name }}</dd>
+              </div>
+            </dl>
+
+            <div class="actions">
+              <RouterLink :to="`/items/${item.id}`" class="btn-secondary">Details</RouterLink>
+              <RouterLink :to="`/items/${item.id}/edit`" class="btn-secondary">
+                Bearbeiten
+              </RouterLink>
+              <button type="button" class="btn-danger" @click="handleDelete(item.id)">
+                Löschen
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div v-else class="card empty-state">
+          <h2>Keine passenden Einträge gefunden</h2>
+          <p>Ändere deine Suche oder deine Filter, um weitere Ergebnisse zu sehen.</p>
+        </div>
+      </template>
     </div>
   </section>
 </template>
@@ -221,6 +266,10 @@ function statusBadgeClass(status: ItemStatus) {
   display: grid;
   grid-template-columns: 1.5fr repeat(3, 1fr);
   gap: 18px;
+}
+
+.filter-actions {
+  margin-top: 18px;
 }
 
 .results-info {
@@ -281,12 +330,21 @@ function statusBadgeClass(status: ItemStatus) {
   font-weight: 800;
 }
 
-.empty-state {
+.empty-state,
+.loading-box,
+.error-box {
   text-align: center;
 }
 
 .empty-state p {
   color: var(--muted);
+}
+
+.error-box {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  margin-bottom: 20px;
 }
 
 @media (max-width: 950px) {

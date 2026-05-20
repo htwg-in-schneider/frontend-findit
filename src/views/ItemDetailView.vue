@@ -1,13 +1,37 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { deleteItem, getItemById, type ItemStatus, type ItemType } from '../services/itemService'
+import {
+  deleteItem,
+  getItemById,
+  type Item,
+  type ItemStatus,
+  type ItemType,
+} from '../services/itemService'
 
 const route = useRoute()
 const router = useRouter()
 
+const item = ref<Item | null>(null)
+const isLoading = ref(false)
+const errorMessage = ref('')
+
 const itemId = computed(() => Number(route.params.id))
-const item = computed(() => getItemById(itemId.value))
+
+async function loadItem() {
+  isLoading.value = true
+  errorMessage.value = ''
+
+  try {
+    item.value = await getItemById(itemId.value)
+  } catch (error) {
+    console.error(error)
+    item.value = null
+    errorMessage.value = 'Der Eintrag konnte nicht geladen werden.'
+  } finally {
+    isLoading.value = false
+  }
+}
 
 function typeLabel(type: ItemType) {
   return type === 'LOST' ? 'Verloren' : 'Gefunden'
@@ -37,7 +61,7 @@ function statusBadgeClass(status: ItemStatus) {
   return classes[status]
 }
 
-function handleDelete() {
+async function handleDelete() {
   if (!item.value) {
     return
   }
@@ -48,15 +72,26 @@ function handleDelete() {
     return
   }
 
-  deleteItem(item.value.id)
-  router.push('/items')
+  try {
+    await deleteItem(item.value.id)
+    router.push('/items')
+  } catch (error) {
+    console.error(error)
+    alert('Der Eintrag konnte nicht gelöscht werden.')
+  }
 }
+
+onMounted(loadItem)
 </script>
 
 <template>
   <section class="page-section">
     <div class="container">
-      <div v-if="item" class="detail-layout">
+      <div v-if="isLoading" class="card loading-box">
+        Eintrag wird geladen...
+      </div>
+
+      <div v-else-if="item" class="detail-layout">
         <div class="detail-main">
           <div class="detail-header">
             <div>
@@ -132,12 +167,20 @@ function handleDelete() {
               </RouterLink>
             </div>
           </div>
+
+          <div class="card hint-card">
+            <h2>Nächster Schritt</h2>
+            <p>
+              In der finalen Version kann hier eine Kontaktanfrage an die meldende Person
+              gesendet werden.
+            </p>
+          </div>
         </aside>
       </div>
 
       <div v-else class="card empty-state">
         <h1>Eintrag nicht gefunden</h1>
-        <p>Der gesuchte Gegenstand existiert nicht oder wurde bereits gelöscht.</p>
+        <p>{{ errorMessage || 'Der gesuchte Gegenstand existiert nicht oder wurde bereits gelöscht.' }}</p>
         <RouterLink to="/items" class="btn-primary">Zurück zur Übersicht</RouterLink>
       </div>
     </div>
@@ -258,7 +301,8 @@ function handleDelete() {
   margin: 0;
 }
 
-.empty-state {
+.empty-state,
+.loading-box {
   text-align: center;
 }
 
