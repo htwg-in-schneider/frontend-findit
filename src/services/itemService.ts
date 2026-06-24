@@ -18,6 +18,8 @@ export interface Item {
   type: ItemType
   category: string
   location: string
+  latitude: number | null
+  longitude: number | null
   date: string
   status: ItemStatus
   user: User
@@ -29,6 +31,8 @@ export interface ItemInput {
   type: ItemType
   category: string
   location: string
+  latitude: number
+  longitude: number
   date: string
   status: ItemStatus
   userId: number

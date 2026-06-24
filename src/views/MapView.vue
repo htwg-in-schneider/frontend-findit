@@ -1,81 +1,63 @@
 <script setup lang="ts">
-import 'leaflet/dist/leaflet.css'
-
-import L from 'leaflet'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import * as L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { getItems, type Item, type ItemStatus, type ItemType } from '../services/itemService'
+import {
+  MAP_DEFAULT_CENTER,
+  MAP_DEFAULT_ZOOM,
+  MAP_MAX_ZOOM,
+  MAP_MIN_ZOOM,
+  getCoordinateKey,
+  getMarkerOffset,
+  hasValidCoordinates,
+} from '../config/mapConfig'
 
-type Coordinates = {
-  lat: number
-  lng: number
+interface MapItem extends Item {
+  hasCoordinates: boolean
+  resolvedLatitude: number | null
+  resolvedLongitude: number | null
+  markerLatitude: number | null
+  markerLongitude: number | null
 }
 
-const mapElement = ref<HTMLElement | null>(null)
+const campusCenter: L.LatLngExpression = [
+  MAP_DEFAULT_CENTER.latitude,
+  MAP_DEFAULT_CENTER.longitude,
+]
+
+const items = ref<MapItem[]>([])
+const isLoading = ref(false)
+const errorMessage = ref('')
+const selectedType = ref<'ALL' | ItemType>('ALL')
+const selectedStatus = ref<'ALL' | ItemStatus>('ALL')
+const mapContainer = ref<HTMLDivElement | null>(null)
+const activeItemId = ref<number | null>(null)
 
 let leafletMap: L.Map | null = null
 let markerGroup: L.LayerGroup | null = null
+let markersByItemId = new Map<number, L.Marker>()
 
-const items = ref<Item[]>([])
-const isLoading = ref(false)
-const errorMessage = ref('')
+const visibleItems = computed(() => {
+  return items.value.filter((item) => {
+    const matchesType = selectedType.value === 'ALL' || item.type === selectedType.value
+    const matchesStatus = selectedStatus.value === 'ALL' || item.status === selectedStatus.value
 
-const selectedType = ref('')
-const selectedCategory = ref('')
-const selectedStatus = ref('')
-
-const campusCenter: Coordinates = {
-  lat: 47.6679,
-  lng: 9.1717,
-}
-
-const knownLocations: Record<string, Coordinates> = {
-  bibliothek: {
-    lat: 47.6679,
-    lng: 9.1714,
-  },
-  mensa: {
-    lat: 47.6673,
-    lng: 9.1707,
-  },
-  'gebäude f': {
-    lat: 47.6682,
-    lng: 9.1725,
-  },
-  'gebaeude f': {
-    lat: 47.6682,
-    lng: 9.1725,
-  },
-  campus: {
-    lat: 47.6679,
-    lng: 9.1717,
-  },
-  htwg: {
-    lat: 47.6679,
-    lng: 9.1717,
-  },
-}
-
-const categories = computed(() => {
-  const categorySet = new Set<string>()
-
-  items.value.forEach((item) => {
-    if (item.category) {
-      categorySet.add(item.category)
-    }
+    return matchesType && matchesStatus
   })
-
-  return [...categorySet].sort()
 })
 
-const filteredItems = computed(() => {
-  return items.value.filter((item) => {
-    const matchesType = !selectedType.value || item.type === selectedType.value
-    const matchesCategory = !selectedCategory.value || item.category === selectedCategory.value
-    const matchesStatus = !selectedStatus.value || item.status === selectedStatus.value
+const visibleItemsWithMarkers = computed(() => {
+  return visibleItems.value.filter((item) => item.hasCoordinates)
+})
 
-    return matchesType && matchesCategory && matchesStatus
-  })
+const itemsWithoutCoordinates = computed(() => {
+  return visibleItems.value.filter((item) => !item.hasCoordinates)
+})
+
+const openItemsCount = computed(() => {
+  return items.value.filter((item) => item.status !== 'RETURNED').length
 })
 
 async function loadItems() {
@@ -83,31 +65,94 @@ async function loadItems() {
   errorMessage.value = ''
 
   try {
-    items.value = await getItems()
+    const loadedItems = await getItems()
+    const convertedItems = loadedItems.map(toMapItem)
+
+    items.value = applyMarkerOffsets(convertedItems)
   } catch (error) {
     console.error(error)
-    errorMessage.value =
-      'Die Kartendaten konnten nicht geladen werden. Bitte prüfe, ob das Backend läuft.'
+    errorMessage.value = 'Die Kartendaten konnten nicht geladen werden.'
   } finally {
     isLoading.value = false
   }
 }
 
-async function initMap() {
-  await nextTick()
+function toMapItem(item: Item): MapItem {
+  if (hasValidCoordinates(item.latitude, item.longitude)) {
+    const latitude = item.latitude as number
+    const longitude = item.longitude as number
 
-  if (!mapElement.value || leafletMap) {
+    return {
+      ...item,
+      hasCoordinates: true,
+      resolvedLatitude: latitude,
+      resolvedLongitude: longitude,
+      markerLatitude: latitude,
+      markerLongitude: longitude,
+    }
+  }
+
+  return {
+    ...item,
+    hasCoordinates: false,
+    resolvedLatitude: null,
+    resolvedLongitude: null,
+    markerLatitude: null,
+    markerLongitude: null,
+  }
+}
+
+function applyMarkerOffsets(mapItems: MapItem[]) {
+  const groups = new Map<string, MapItem[]>()
+
+  mapItems.forEach((item) => {
+    if (!item.hasCoordinates || item.resolvedLatitude === null || item.resolvedLongitude === null) {
+      return
+    }
+
+    const key = getCoordinateKey(item.resolvedLatitude, item.resolvedLongitude)
+    const group = groups.get(key) ?? []
+
+    group.push(item)
+    groups.set(key, group)
+  })
+
+  groups.forEach((group) => {
+    if (group.length <= 1) {
+      return
+    }
+
+    group.forEach((item, index) => {
+      if (item.resolvedLatitude === null || item.resolvedLongitude === null) {
+        return
+      }
+
+      const offset = getMarkerOffset(index, group.length)
+
+      item.markerLatitude = item.resolvedLatitude + offset.latitude
+      item.markerLongitude = item.resolvedLongitude + offset.longitude
+    })
+  })
+
+  return mapItems
+}
+
+function initializeMap() {
+  if (!mapContainer.value || leafletMap) {
     return
   }
 
-  leafletMap = L.map(mapElement.value, {
-    zoomControl: true,
+  leafletMap = L.map(mapContainer.value, {
+    center: campusCenter,
+    zoom: MAP_DEFAULT_ZOOM,
+    minZoom: MAP_MIN_ZOOM,
+    maxZoom: MAP_MAX_ZOOM,
     scrollWheelZoom: true,
-  }).setView([campusCenter.lat, campusCenter.lng], 17)
+  })
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: MAP_MAX_ZOOM,
     attribution: '&copy; OpenStreetMap-Mitwirkende',
-    maxZoom: 19,
   }).addTo(leafletMap)
 
   markerGroup = L.layerGroup().addTo(leafletMap)
@@ -119,100 +164,107 @@ function renderMarkers() {
   }
 
   markerGroup.clearLayers()
+  markersByItemId = new Map<number, L.Marker>()
 
-  filteredItems.value.forEach((item, index) => {
-    const coordinates = getCoordinatesForLocation(item.location, item.id ?? index)
+  const markerBounds: L.LatLngExpression[] = []
 
-    L.marker([coordinates.lat, coordinates.lng], {
-      icon: createMarkerIcon(item.type),
+  visibleItemsWithMarkers.value.forEach((item) => {
+    if (item.markerLatitude === null || item.markerLongitude === null) {
+      return
+    }
+
+    const markerPosition: L.LatLngExpression = [item.markerLatitude, item.markerLongitude]
+
+    markerBounds.push(markerPosition)
+
+    const marker = L.marker(markerPosition, {
+      icon: createMarkerIcon(item.type, item.status),
+      title: item.title,
+      riseOnHover: true,
     })
-      .bindPopup(createPopupContent(item))
-      .addTo(markerGroup as L.LayerGroup)
+
+    marker.bindPopup(createPopupHtml(item), {
+      maxWidth: 300,
+      className: 'findit-popup',
+    })
+
+    marker.on('click', () => {
+      activeItemId.value = item.id
+    })
+
+    marker.addTo(markerGroup as L.LayerGroup)
+    markersByItemId.set(item.id, marker)
   })
 
-  const markerLayers = markerGroup.getLayers()
-
-  if (markerLayers.length > 0) {
-    const bounds = L.featureGroup(markerLayers).getBounds()
-
-    leafletMap.fitBounds(bounds, {
-      padding: [36, 36],
-      maxZoom: 17,
+  if (markerBounds.length > 0) {
+    leafletMap.fitBounds(L.latLngBounds(markerBounds), {
+      padding: [48, 48],
+      maxZoom: 18,
     })
   } else {
-    leafletMap.setView([campusCenter.lat, campusCenter.lng], 17)
+    leafletMap.setView(campusCenter, MAP_DEFAULT_ZOOM)
   }
 }
 
-function getCoordinatesForLocation(location: string, itemId: number): Coordinates {
-  const normalizedLocation = location.trim().toLowerCase()
+function createMarkerIcon(type: ItemType, status: ItemStatus) {
+  const markerClass = [
+    'findit-map-marker',
+    type === 'FOUND' ? 'found' : 'lost',
+    status === 'RETURNED' ? 'returned' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
-  for (const [knownLocation, coordinates] of Object.entries(knownLocations)) {
-    if (normalizedLocation.includes(knownLocation)) {
-      return coordinates
-    }
-  }
-
-  return createFallbackCoordinates(itemId)
-}
-
-function createFallbackCoordinates(itemId: number): Coordinates {
-  const offsetSeed = itemId % 9
-
-  return {
-    lat: campusCenter.lat + (offsetSeed - 4) * 0.00018,
-    lng: campusCenter.lng + (offsetSeed - 4) * 0.00022,
-  }
-}
-
-function createMarkerIcon(type: ItemType) {
-  const markerClass = type === 'LOST' ? 'findit-marker lost-marker' : 'findit-marker found-marker'
-  const markerLabel = type === 'LOST' ? '!' : '✓'
+  const symbol = type === 'FOUND' ? '✓' : '!'
 
   return L.divIcon({
     className: markerClass,
-    html: `<span>${markerLabel}</span>`,
-    iconSize: [42, 42],
-    iconAnchor: [21, 42],
-    popupAnchor: [0, -38],
+    html: `
+      <div class="findit-marker-shell">
+        <div class="findit-marker-icon">${symbol}</div>
+        <div class="findit-marker-tail"></div>
+      </div>
+    `,
+    iconSize: [42, 54],
+    iconAnchor: [21, 52],
+    popupAnchor: [0, -46],
   })
 }
 
-function createPopupContent(item: Item) {
-  const detailUrl = `${import.meta.env.BASE_URL}items/${item.id}`
+function createPopupHtml(item: MapItem) {
+  const typeLabel = item.type === 'FOUND' ? 'Gefunden' : 'Verloren'
+  const statusLabel = getStatusLabel(item.status)
 
   return `
-    <article class="map-popup">
-      <div class="map-popup-badges">
-        <span>${typeLabel(item.type)}</span>
-        <span>${statusLabel(item.status)}</span>
-      </div>
-
-      <h3>${escapeHtml(item.title)}</h3>
-      <p>${escapeHtml(item.description)}</p>
-
-      <dl>
-        <div>
-          <dt>Ort</dt>
-          <dd>${escapeHtml(item.location)}</dd>
-        </div>
-        <div>
-          <dt>Kategorie</dt>
-          <dd>${escapeHtml(item.category)}</dd>
-        </div>
-        <div>
-          <dt>Datum</dt>
-          <dd>${escapeHtml(item.date)}</dd>
-        </div>
-      </dl>
-
-      <a href="${detailUrl}">Details öffnen</a>
+    <article class="findit-popup-card">
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${typeLabel} · ${statusLabel}</span>
+      <p>${escapeHtml(item.location)} · ${escapeHtml(item.category)}</p>
+      <a href="${import.meta.env.BASE_URL}items/${item.id}">Details öffnen</a>
     </article>
   `
 }
 
-function escapeHtml(value: string | null | undefined) {
-  return String(value ?? '')
+function focusItem(item: MapItem) {
+  if (!leafletMap || !item.hasCoordinates || item.markerLatitude === null || item.markerLongitude === null) {
+    return
+  }
+
+  activeItemId.value = item.id
+
+  leafletMap.setView([item.markerLatitude, item.markerLongitude], 18, {
+    animate: true,
+  })
+
+  const marker = markersByItemId.get(item.id)
+
+  if (marker) {
+    marker.openPopup()
+  }
+}
+
+function escapeHtml(value: string) {
+  return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -220,17 +272,11 @@ function escapeHtml(value: string | null | undefined) {
     .replaceAll("'", '&#039;')
 }
 
-function resetFilters() {
-  selectedType.value = ''
-  selectedCategory.value = ''
-  selectedStatus.value = ''
+function getTypeLabel(type: ItemType) {
+  return type === 'FOUND' ? 'Gefunden' : 'Verloren'
 }
 
-function typeLabel(type: ItemType) {
-  return type === 'LOST' ? 'Verloren' : 'Gefunden'
-}
-
-function statusLabel(status: ItemStatus) {
+function getStatusLabel(status: ItemStatus) {
   const labels: Record<ItemStatus, string> = {
     OPEN: 'Offen',
     IN_PROGRESS: 'In Klärung',
@@ -240,137 +286,207 @@ function statusLabel(status: ItemStatus) {
   return labels[status]
 }
 
-function typeBadgeClass(type: ItemType) {
-  return type === 'LOST' ? 'badge-lost' : 'badge-found'
-}
-
-function statusBadgeClass(status: ItemStatus) {
-  const classes: Record<ItemStatus, string> = {
-    OPEN: 'badge-open',
-    IN_PROGRESS: 'badge-progress',
-    RETURNED: 'badge-returned',
-  }
-
-  return classes[status]
-}
+watch(
+  [visibleItems, selectedType, selectedStatus],
+  async () => {
+    await nextTick()
+    renderMarkers()
+  },
+  { deep: true },
+)
 
 onMounted(async () => {
-  await initMap()
+  initializeMap()
   await loadItems()
+  await nextTick()
   renderMarkers()
 })
 
-onUnmounted(() => {
-  leafletMap?.remove()
-  leafletMap = null
-  markerGroup = null
-})
-
-watch(filteredItems, () => {
-  renderMarkers()
+onBeforeUnmount(() => {
+  if (leafletMap) {
+    leafletMap.remove()
+    leafletMap = null
+    markerGroup = null
+    markersByItemId = new Map<number, L.Marker>()
+  }
 })
 </script>
 
 <template>
-  <section class="map-page">
-    <div class="container map-header">
-      <div>
-        <p class="eyebrow">Campuskarte</p>
-        <h1 class="section-title">Einträge auf der Karte</h1>
-        <p class="section-subtitle">
-          Verlorene und gefundene Gegenstände werden als Marker auf dem Campus dargestellt. So
-          siehst du sofort, wo ein Gegenstand gefunden oder verloren wurde.
-        </p>
+  <section class="page-section map-page">
+    <div class="container map-layout">
+      <div class="map-header">
+        <div>
+          <p class="eyebrow">Campuskarte</p>
+          <h1 class="section-title">Fundorte und Verlustorte auf der Karte</h1>
+          <p class="section-subtitle">
+            Die Karte zeigt nur Einträge mit gespeicherter Kartenposition. Einträge ohne
+            Koordinaten bleiben in der Liste sichtbar und können über die Detailseite geprüft
+            oder später bearbeitet werden.
+          </p>
+        </div>
+
+        <RouterLink to="/items/new" class="btn-primary">Gegenstand melden</RouterLink>
       </div>
 
-      <RouterLink to="/items/new" class="btn-primary">Gegenstand melden</RouterLink>
-    </div>
+      <div class="map-stats">
+        <article>
+          <strong>{{ items.length }}</strong>
+          <span>Einträge gesamt</span>
+        </article>
 
-    <div class="container map-layout">
-      <aside class="card map-sidebar">
-        <h2>Filter</h2>
+        <article>
+          <strong>{{ openItemsCount }}</strong>
+          <span>Aktive Einträge</span>
+        </article>
 
-        <div class="form-group">
-          <label for="map-type">Typ</label>
-          <select id="map-type" v-model="selectedType">
-            <option value="">Alle Typen</option>
-            <option value="LOST">Verloren</option>
-            <option value="FOUND">Gefunden</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="map-category">Kategorie</label>
-          <select id="map-category" v-model="selectedCategory">
-            <option value="">Alle Kategorien</option>
-            <option v-for="category in categories" :key="category" :value="category">
-              {{ category }}
-            </option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="map-status">Status</label>
-          <select id="map-status" v-model="selectedStatus">
-            <option value="">Alle Status</option>
-            <option value="OPEN">Offen</option>
-            <option value="IN_PROGRESS">In Klärung</option>
-            <option value="RETURNED">Zurückgegeben</option>
-          </select>
-        </div>
-
-        <button type="button" class="btn-secondary sidebar-button" @click="resetFilters">
-          Filter zurücksetzen
-        </button>
-
-        <div class="map-stats">
-          <strong>{{ filteredItems.length }}</strong>
-          <span>sichtbare Einträge</span>
-        </div>
-
-        <div class="legend">
-          <div>
-            <span class="legend-dot found"></span>
-            Gefunden
-          </div>
-          <div>
-            <span class="legend-dot lost"></span>
-            Verloren
-          </div>
-        </div>
-      </aside>
+        <article>
+          <strong>{{ visibleItemsWithMarkers.length }}</strong>
+          <span>Mit Kartenposition</span>
+        </article>
+      </div>
 
       <div class="map-content">
-        <div v-if="errorMessage" class="card error-box">
-          {{ errorMessage }}
-        </div>
+        <aside class="card map-sidebar">
+          <div class="filter-panel">
+            <div class="filter-block">
+              <span class="filter-title">Typ</span>
 
-        <div class="map-card">
-          <div ref="mapElement" class="leaflet-map"></div>
+              <div class="filter-chips">
+                <button
+                  type="button"
+                  class="filter-chip"
+                  :class="{ active: selectedType === 'ALL' }"
+                  @click="selectedType = 'ALL'"
+                >
+                  Alle
+                </button>
 
-          <div v-if="isLoading" class="map-loading">
-            Einträge werden geladen...
-          </div>
-        </div>
+                <button
+                  type="button"
+                  class="filter-chip found"
+                  :class="{ active: selectedType === 'FOUND' }"
+                  @click="selectedType = 'FOUND'"
+                >
+                  Gefunden
+                </button>
 
-        <div class="map-results">
-          <article v-for="item in filteredItems" :key="item.id" class="card map-result-card">
-            <div class="item-card-header">
-              <span class="badge" :class="typeBadgeClass(item.type)">
-                {{ typeLabel(item.type) }}
-              </span>
-
-              <span class="badge" :class="statusBadgeClass(item.status)">
-                {{ statusLabel(item.status) }}
-              </span>
+                <button
+                  type="button"
+                  class="filter-chip lost"
+                  :class="{ active: selectedType === 'LOST' }"
+                  @click="selectedType = 'LOST'"
+                >
+                  Verloren
+                </button>
+              </div>
             </div>
 
-            <h2>{{ item.title }}</h2>
+            <div class="filter-block">
+              <span class="filter-title">Status</span>
 
-            <p>{{ item.location }} · {{ item.category }} · {{ item.date }}</p>
+              <div class="filter-chips">
+                <button
+                  type="button"
+                  class="filter-chip"
+                  :class="{ active: selectedStatus === 'ALL' }"
+                  @click="selectedStatus = 'ALL'"
+                >
+                  Alle
+                </button>
 
-            <RouterLink :to="`/items/${item.id}`" class="btn-secondary">Details öffnen</RouterLink>
-          </article>
+                <button
+                  type="button"
+                  class="filter-chip"
+                  :class="{ active: selectedStatus === 'OPEN' }"
+                  @click="selectedStatus = 'OPEN'"
+                >
+                  Offen
+                </button>
+
+                <button
+                  type="button"
+                  class="filter-chip"
+                  :class="{ active: selectedStatus === 'IN_PROGRESS' }"
+                  @click="selectedStatus = 'IN_PROGRESS'"
+                >
+                  In Klärung
+                </button>
+
+                <button
+                  type="button"
+                  class="filter-chip"
+                  :class="{ active: selectedStatus === 'RETURNED' }"
+                  @click="selectedStatus = 'RETURNED'"
+                >
+                  Zurückgegeben
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="isLoading" class="map-message">
+            Kartendaten werden geladen...
+          </div>
+
+          <div v-else-if="errorMessage" class="map-error">
+            {{ errorMessage }}
+          </div>
+
+          <div v-else class="map-item-list">
+            <article
+              v-for="item in visibleItems"
+              :key="item.id"
+              class="map-item"
+              :class="{ active: activeItemId === item.id, muted: !item.hasCoordinates }"
+            >
+              <button
+                type="button"
+                class="map-item-main"
+                :disabled="!item.hasCoordinates"
+                @click="focusItem(item)"
+              >
+                <span
+                  class="map-item-badge"
+                  :class="{
+                    found: item.type === 'FOUND',
+                    lost: item.type === 'LOST',
+                    returned: item.status === 'RETURNED',
+                  }"
+                >
+                  {{ item.type === 'FOUND' ? '✓' : '!' }}
+                </span>
+
+                <span class="map-item-content">
+                  <strong>{{ item.title }}</strong>
+                  <span>
+                    {{ getTypeLabel(item.type) }} · {{ getStatusLabel(item.status) }}
+                  </span>
+                  <small>{{ item.location }} · {{ item.category }}</small>
+                  <small v-if="!item.hasCoordinates" class="source-warning">
+                    Keine Kartenposition gespeichert
+                  </small>
+                </span>
+              </button>
+
+              <RouterLink :to="`/items/${item.id}`" class="map-item-link">
+                Details
+              </RouterLink>
+            </article>
+
+            <p v-if="visibleItems.length === 0" class="empty-list">
+              Keine passenden Einträge gefunden.
+            </p>
+          </div>
+
+          <div v-if="itemsWithoutCoordinates.length > 0" class="missing-position-hint">
+            {{ itemsWithoutCoordinates.length }} sichtbare Einträge haben noch keine gespeicherte
+            Kartenposition.
+          </div>
+        </aside>
+
+        <div class="card map-card">
+          <div ref="mapContainer" class="map-container"></div>
         </div>
       </div>
     </div>
@@ -379,275 +495,404 @@ watch(filteredItems, () => {
 
 <style scoped>
 .map-page {
-  padding: 72px 0;
-  min-height: calc(100vh - 76px);
   background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 32%),
-    linear-gradient(135deg, #f8fafc 0%, #ffffff 52%, #eff6ff 100%);
-}
-
-.map-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 32px;
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.1), transparent 28%),
+    linear-gradient(135deg, #f8fafc 0%, #ffffff 48%, #eff6ff 100%);
 }
 
 .map-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 28px;
+}
+
+.map-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 24px;
-  align-items: start;
 }
 
-.map-sidebar {
-  position: sticky;
-  top: 100px;
-  display: grid;
-  gap: 18px;
-}
-
-.map-sidebar h2 {
-  margin: 0;
-}
-
-.sidebar-button {
-  width: 100%;
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .map-stats {
   display: grid;
-  gap: 4px;
-  padding: 18px;
-  border-radius: var(--radius-md);
-  background: #eff6ff;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.map-stats article {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: white;
+  box-shadow: var(--shadow-sm);
 }
 
 .map-stats strong {
-  font-size: 2rem;
+  display: block;
+  margin-bottom: 4px;
   color: var(--primary);
+  font-size: 2rem;
+  font-weight: 900;
 }
 
 .map-stats span {
   color: var(--muted);
-  font-weight: 700;
-}
-
-.legend {
-  display: grid;
-  gap: 10px;
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.legend div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.legend-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-}
-
-.legend-dot.found {
-  background: var(--success);
-}
-
-.legend-dot.lost {
-  background: var(--accent);
+  font-weight: 800;
 }
 
 .map-content {
   display: grid;
-  gap: 24px;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
 }
 
-.map-card {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 32px;
-  background: white;
-  box-shadow: var(--shadow-md);
-}
-
-.leaflet-map {
-  min-height: 620px;
-  width: 100%;
-  z-index: 1;
-}
-
-.map-loading {
-  position: absolute;
-  inset: 24px auto auto 24px;
-  z-index: 2;
-  padding: 12px 16px;
-  border-radius: 999px;
-  background: white;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  font-weight: 800;
-}
-
-.map-results {
+.map-sidebar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 18px;
+  max-height: 680px;
+  overflow: auto;
 }
 
-.map-result-card {
+.filter-panel {
   display: grid;
-  gap: 12px;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: var(--shadow-sm);
 }
 
-.map-result-card h2 {
-  margin: 0;
-  font-size: 1.2rem;
+.filter-block {
+  display: grid;
+  gap: 10px;
 }
 
-.map-result-card p {
-  margin: 0;
-  color: var(--muted);
+.filter-title {
+  color: #0f172a;
+  font-weight: 900;
 }
 
-.item-card-header {
+.filter-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.error-box {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-  font-weight: 700;
+.filter-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: white;
+  color: var(--muted);
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
 }
 
-:global(.findit-marker) {
+.filter-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.35);
+  color: var(--primary);
+}
+
+.filter-chip.active {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #2563eb;
+  color: white;
+}
+
+.filter-chip.found.active {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: #16a34a;
+}
+
+.filter-chip.lost.active {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: #dc2626;
+}
+
+.map-item-list {
+  display: grid;
+  gap: 12px;
+}
+
+.map-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: white;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.map-item:hover,
+.map-item.active {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #eff6ff;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-item.muted {
+  background: #f8fafc;
+}
+
+.map-item-main {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-item-main:disabled {
+  cursor: default;
+}
+
+.map-item-badge {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 900;
+}
+
+.map-item-badge.found {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.map-item-badge.returned {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.map-item-content {
+  min-width: 0;
+}
+
+.map-item-content strong,
+.map-item-content span,
+.map-item-content small {
+  display: block;
+}
+
+.map-item-content strong {
+  margin-bottom: 4px;
+}
+
+.map-item-content span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.map-item-content small {
+  margin-top: 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.map-item-link {
+  width: fit-content;
+  margin-left: 50px;
+  color: var(--primary);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.map-item-link:hover {
+  text-decoration: underline;
+}
+
+.source-warning {
+  color: #b91c1c !important;
+}
+
+.missing-position-hint {
+  padding: 14px 16px;
+  border: 1px solid #fde68a;
+  border-radius: 16px;
+  background: #fffbeb;
+  color: #92400e;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.map-card {
+  overflow: hidden;
+  padding: 0;
+  min-height: 680px;
+}
+
+.map-container {
+  width: 100%;
+  height: 680px;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.map-message,
+.map-error,
+.empty-list {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.map-error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+:global(.findit-map-marker) {
   border: none;
   background: transparent;
 }
 
-:global(.findit-marker span) {
+:global(.findit-marker-shell) {
   width: 42px;
-  height: 42px;
-  border: 4px solid white;
-  border-radius: 18px 18px 18px 4px;
+  height: 54px;
+  position: relative;
   display: grid;
   place-items: center;
+}
+
+:global(.findit-marker-icon) {
+  position: relative;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 3px solid white;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
   color: white;
-  font-weight: 900;
   font-size: 1rem;
-  line-height: 1;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.24);
-  transform: rotate(-45deg);
+  font-weight: 900;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.25);
 }
 
-:global(.findit-marker span) {
-  text-align: center;
+:global(.findit-marker-tail) {
+  position: absolute;
+  z-index: 1;
+  bottom: 7px;
+  width: 18px;
+  height: 18px;
+  border-right: 3px solid white;
+  border-bottom: 3px solid white;
+  border-radius: 0 0 6px 0;
+  background: #b91c1c;
+  transform: rotate(45deg);
+  box-shadow: 10px 12px 24px rgba(15, 23, 42, 0.18);
 }
 
-:global(.found-marker span) {
-  background: #16a34a;
+:global(.findit-map-marker.found .findit-marker-icon) {
+  background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
 }
 
-:global(.lost-marker span) {
-  background: #ea580c;
+:global(.findit-map-marker.found .findit-marker-tail) {
+  background: #15803d;
 }
 
-:global(.map-popup) {
-  min-width: 220px;
+:global(.findit-map-marker.returned .findit-marker-icon) {
+  background: linear-gradient(135deg, #94a3b8 0%, #475569 100%);
 }
 
-:global(.map-popup h3) {
-  margin: 10px 0 6px;
-  font-size: 1.05rem;
+:global(.findit-map-marker.returned .findit-marker-tail) {
+  background: #475569;
 }
 
-:global(.map-popup p) {
-  margin: 0 0 10px;
-  color: #4b5563;
-  line-height: 1.5;
-}
-
-:global(.map-popup dl) {
+:global(.findit-popup-card) {
   display: grid;
   gap: 6px;
-  margin: 0 0 12px;
+  min-width: 210px;
 }
 
-:global(.map-popup div) {
-  display: grid;
-  gap: 2px;
+:global(.findit-popup-card strong) {
+  color: #0f172a;
+  font-size: 0.98rem;
 }
 
-:global(.map-popup dt) {
-  font-size: 0.75rem;
-  color: #6b7280;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-:global(.map-popup dd) {
-  margin: 0;
-  font-weight: 700;
-}
-
-:global(.map-popup a) {
-  display: inline-flex;
+:global(.findit-popup-card span) {
   color: #2563eb;
   font-weight: 800;
 }
 
-:global(.map-popup-badges) {
-  display: flex !important;
-  flex-direction: row;
-  gap: 6px;
+:global(.findit-popup-card p) {
+  margin: 0;
+  color: #64748b;
 }
 
-:global(.map-popup-badges span) {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1e40af;
-  font-weight: 800;
-  font-size: 0.78rem;
+:global(.findit-popup-card a) {
+  width: fit-content;
+  margin-top: 6px;
+  color: #2563eb;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+:global(.findit-popup-card a:hover) {
+  text-decoration: underline;
 }
 
 @media (max-width: 950px) {
   .map-header {
-    align-items: flex-start;
     flex-direction: column;
   }
 
-  .map-layout {
+  .map-header .btn-primary {
+    width: 100%;
+  }
+
+  .map-content {
     grid-template-columns: 1fr;
   }
 
   .map-sidebar {
-    position: static;
+    max-height: none;
   }
 
-  .leaflet-map {
-    min-height: 480px;
-  }
-
-  .map-results {
-    grid-template-columns: 1fr;
+  .map-card,
+  .map-container {
+    min-height: 520px;
+    height: 520px;
   }
 }
 
-@media (max-width: 600px) {
-  .map-page {
-    padding: 48px 0;
-  }
-
-  .leaflet-map {
-    min-height: 380px;
+@media (max-width: 700px) {
+  .map-stats {
+    grid-template-columns: 1fr;
   }
 }
 </style>

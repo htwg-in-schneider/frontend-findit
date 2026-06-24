@@ -1,3 +1,7 @@
+<script setup lang="ts">
+import MiniMapPreview from '../components/MiniMapPreview.vue'
+</script>
+
 <template>
   <section class="hero">
     <div class="container hero-grid">
@@ -18,23 +22,19 @@
       </div>
 
       <div class="hero-card">
-        <div class="map-preview">
-          <div class="map-pin pin-one">📍</div>
-          <div class="map-pin pin-two">🎧</div>
-          <div class="map-pin pin-three">🎒</div>
-        </div>
+        <MiniMapPreview />
 
         <div class="preview-list">
           <div class="preview-item">
             <span class="badge badge-found">Gefunden</span>
-            <strong>Kopfhörer</strong>
-            <small>Bibliothek · offen</small>
+            <strong>Live-Karte</strong>
+            <small>Einträge mit echten Kartenpositionen</small>
           </div>
 
           <div class="preview-item">
             <span class="badge badge-lost">Verloren</span>
-            <strong>Rucksack</strong>
-            <small>Mensa · in Klärung</small>
+            <strong>Campusübersicht</strong>
+            <small>Fund- und Verlustorte direkt sichtbar</small>
           </div>
         </div>
       </div>
@@ -54,8 +54,8 @@
           <div class="feature-icon">📝</div>
           <h3>Gegenstand erfassen</h3>
           <p>
-            Nutzer melden verlorene oder gefundene Gegenstände mit Titel, Kategorie, Ort, Datum
-            und Beschreibung.
+            Nutzer melden verlorene oder gefundene Gegenstände mit Titel, Kategorie, Ort, Datum,
+            Beschreibung und automatisch ermittelter Kartenposition.
           </p>
         </article>
 
@@ -72,8 +72,8 @@
           <div class="feature-icon">🗺️</div>
           <h3>Auf der Karte anzeigen</h3>
           <p>
-            Fund- und Verlustorte werden visuell dargestellt, damit Nutzer Einträge schneller
-            räumlich einordnen können.
+            Fund- und Verlustorte werden anhand gespeicherter Koordinaten auf einer echten
+            OpenStreetMap-Karte dargestellt.
           </p>
         </article>
       </div>
@@ -182,43 +182,6 @@
   overflow: hidden;
 }
 
-.map-preview {
-  position: relative;
-  min-height: 280px;
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(37, 99, 235, 0.08) 1px, transparent 1px),
-    #eff6ff;
-  background-size: 36px 36px;
-}
-
-.map-pin {
-  position: absolute;
-  width: 52px;
-  height: 52px;
-  border-radius: 18px;
-  display: grid;
-  place-items: center;
-  background: white;
-  box-shadow: var(--shadow-sm);
-  font-size: 1.5rem;
-}
-
-.pin-one {
-  top: 54px;
-  left: 72px;
-}
-
-.pin-two {
-  top: 126px;
-  right: 86px;
-}
-
-.pin-three {
-  bottom: 52px;
-  left: 45%;
-}
-
 .preview-list {
   display: grid;
   gap: 14px;
@@ -283,10 +246,6 @@
   .hero-grid,
   .contact-grid {
     grid-template-columns: 1fr;
-  }
-
-  .map-preview {
-    min-height: 220px;
   }
 }
 </style>

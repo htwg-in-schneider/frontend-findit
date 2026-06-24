@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 import { AUTH_ENABLED } from '../config/auth'
+import { MAP_DEFAULT_CENTER } from '../config/mapConfig'
+import { geocodeLocation, type GeocodingResult } from '../services/geoCodingService'
 import { getCategories, type Category } from '../services/categoryService'
 import { getUsers } from '../services/userService'
 import {
@@ -25,14 +27,20 @@ const auth0 = AUTH_ENABLED ? useAuth0() : null
 const isLoading = ref(false)
 const isLoadingCategories = ref(false)
 const isLoadingUsers = ref(false)
+const isSearchingLocation = ref(false)
 
 const loadErrorMessage = ref('')
 const saveErrorMessage = ref('')
+const locationSearchMessage = ref('')
 const isUnauthorized = ref(false)
 
 const categories = ref<Category[]>([])
 const reporterOptions = ref<User[]>([])
 const loadedReporter = ref<User | null>(null)
+
+const locationQuery = ref('')
+const locationConfirmed = ref(false)
+const locationResults = ref<GeocodingResult[]>([])
 
 const fallbackCategories = [
   'Elektronik',
@@ -70,7 +78,9 @@ const itemId = computed(() => {
     return null
   }
 
-  return Number(id)
+  const parsedId = Number(id)
+
+  return Number.isFinite(parsedId) ? parsedId : null
 })
 
 const isEditMode = computed(() => itemId.value !== null)
@@ -98,8 +108,29 @@ const hasMissingBackendProfile = computed(() => {
     AUTH_ENABLED &&
     isAuth0Authenticated.value &&
     !authStore.currentUser &&
-    !authStore.isSyncingExternalUser
+    !authStore.isSyncingExternalUser &&
+    authStore.externalAuthLoaded
   )
+})
+
+const isEditForbidden = computed(() => {
+  if (!isEditMode.value) {
+    return false
+  }
+
+  if (!loadedReporter.value) {
+    return false
+  }
+
+  if (canChooseReporter.value) {
+    return false
+  }
+
+  if (!authStore.currentUser) {
+    return false
+  }
+
+  return authStore.currentUser.id !== loadedReporter.value.id
 })
 
 const fallbackAuth0Reporter = computed<User | null>(() => {
@@ -122,6 +153,8 @@ const form = reactive<ItemInput>({
   type: 'FOUND',
   category: 'Elektronik',
   location: '',
+  latitude: MAP_DEFAULT_CENTER.latitude,
+  longitude: MAP_DEFAULT_CENTER.longitude,
   date: todayString,
   status: 'OPEN',
   userId: authStore.currentUser?.id ?? 0,
@@ -149,6 +182,14 @@ const selectedReporter = computed<User | null>(() => {
   return fallbackAuth0Reporter.value
 })
 
+const coordinateLabel = computed(() => {
+  if (!locationConfirmed.value) {
+    return 'Noch keine Position ausgewählt'
+  }
+
+  return `${form.latitude.toFixed(5)}, ${form.longitude.toFixed(5)}`
+})
+
 const categoryOptions = computed(() => {
   const backendCategoryNames = categories.value
     .map((category) => category.name)
@@ -173,12 +214,106 @@ const pageTitle = computed(() => {
 const pageDescription = computed(() => {
   return isEditMode.value
     ? 'Passe die Daten des Eintrags an. Änderungen werden direkt im Backend gespeichert.'
-    : 'Erfasse einen verlorenen oder gefundenen Gegenstand mit den wichtigsten Informationen.'
+    : 'Erfasse einen verlorenen oder gefundenen Gegenstand mit Ortssuche und Kartenposition.'
 })
 
 const submitButtonDisabled = computed(() => {
-  return isLoading.value || isWaitingForBackendProfile.value || hasMissingBackendProfile.value
+  return (
+    isLoading.value ||
+    isSearchingLocation.value ||
+    isWaitingForBackendProfile.value ||
+    hasMissingBackendProfile.value ||
+    isEditForbidden.value
+  )
 })
+
+function redirectToLoginIfRequired() {
+  if (!AUTH_ENABLED) {
+    return
+  }
+
+  if (!authStore.externalAuthLoaded) {
+    return
+  }
+
+  if (isAuth0Authenticated.value) {
+    return
+  }
+
+  router.replace({
+    path: '/login',
+    query: {
+      redirect: route.fullPath,
+    },
+  })
+}
+
+function redirectAwayIfEditForbidden() {
+  if (!isEditForbidden.value) {
+    return
+  }
+
+  if (itemId.value === null) {
+    return
+  }
+
+  router.replace(`/items/${itemId.value}`)
+}
+
+function handleLocationInput() {
+  form.location = ''
+  locationConfirmed.value = false
+  locationResults.value = []
+  locationSearchMessage.value = ''
+  fieldErrors.location = ''
+}
+
+async function searchLocation() {
+  const query = locationQuery.value.trim()
+
+  fieldErrors.location = ''
+  locationSearchMessage.value = ''
+  locationResults.value = []
+
+  if (!query) {
+    fieldErrors.location = 'Bitte gib einen Ort oder eine Adresse ein.'
+    return
+  }
+
+  if (query.length < 3) {
+    fieldErrors.location = 'Bitte gib mindestens 3 Zeichen ein.'
+    return
+  }
+
+  isSearchingLocation.value = true
+
+  try {
+    const results = await geocodeLocation(query, 5)
+
+    locationResults.value = results
+
+    if (results.length === 0) {
+      locationSearchMessage.value =
+        'Kein passender Ort gefunden. Bitte gib den Ort genauer an, z. B. "Mensa HTWG Konstanz".'
+    }
+  } catch (error) {
+    console.error(error)
+    locationSearchMessage.value = 'Die Ortssuche konnte nicht ausgeführt werden.'
+  } finally {
+    isSearchingLocation.value = false
+  }
+}
+
+function selectLocation(result: GeocodingResult) {
+  locationQuery.value = result.shortName
+  form.location = result.shortName
+  form.latitude = result.latitude
+  form.longitude = result.longitude
+  locationConfirmed.value = true
+  locationResults.value = []
+  locationSearchMessage.value = ''
+  fieldErrors.location = ''
+}
 
 function syncReporterWithLogin() {
   if (!authStore.currentUser) {
@@ -217,10 +352,13 @@ function checkEditPermission() {
     isUnauthorized.value = true
     loadErrorMessage.value =
       'Du darfst diesen Eintrag nicht bearbeiten, weil er von einem anderen Nutzer gemeldet wurde.'
-  } else {
-    isUnauthorized.value = false
-    loadErrorMessage.value = ''
+
+    redirectAwayIfEditForbidden()
+    return
   }
+
+  isUnauthorized.value = false
+  loadErrorMessage.value = ''
 }
 
 async function loadCategories() {
@@ -291,6 +429,18 @@ async function loadExistingItem() {
     form.status = item.status
     form.userId = item.user.id
 
+    locationQuery.value = item.location
+
+    if (typeof item.latitude === 'number' && typeof item.longitude === 'number') {
+      form.latitude = item.latitude
+      form.longitude = item.longitude
+      locationConfirmed.value = true
+    } else {
+      form.latitude = MAP_DEFAULT_CENTER.latitude
+      form.longitude = MAP_DEFAULT_CENTER.longitude
+      locationConfirmed.value = false
+    }
+
     checkEditPermission()
   } catch (error) {
     console.error(error)
@@ -335,7 +485,11 @@ function validateForm() {
 
   if (hasMissingBackendProfile.value) {
     fieldErrors.userId =
-      'Dein Backend-Profil konnte noch nicht geladen werden. Bitte lade die Seite neu oder prüfe die Auth0-Claims.'
+      'Dein Backend-Profil konnte noch nicht geladen werden. Bitte lade die Seite neu oder melde dich erneut an.'
+  }
+
+  if (isEditForbidden.value) {
+    fieldErrors.userId = 'Du darfst diesen Eintrag nicht bearbeiten.'
   }
 
   if (!form.title.trim()) {
@@ -350,16 +504,20 @@ function validateForm() {
     fieldErrors.category = 'Bitte wähle eine Kategorie aus.'
   }
 
-  if (!form.location.trim()) {
+  if (!locationQuery.value.trim()) {
     fieldErrors.location = 'Bitte gib einen Ort ein.'
   }
 
-  if (!AUTH_ENABLED && !form.userId) {
-    fieldErrors.userId = 'Bitte wähle einen meldenden Nutzer aus.'
+  if (!locationConfirmed.value || !form.location.trim()) {
+    fieldErrors.location = 'Bitte suche den Ort und wähle ein Suchergebnis aus.'
   }
 
   if (AUTH_ENABLED && authStore.currentUser && !form.userId) {
     form.userId = authStore.currentUser.id
+  }
+
+  if (!form.userId) {
+    fieldErrors.userId = 'Bitte melde dich zuerst an.'
   }
 
   validateDateField()
@@ -384,6 +542,11 @@ function applyBackendFieldErrors(error: ApiError) {
     fieldErrors.location = error.fieldErrors.location
   }
 
+  if (error.fieldErrors.latitude || error.fieldErrors.longitude) {
+    fieldErrors.location =
+      error.fieldErrors.latitude || error.fieldErrors.longitude || 'Bitte wähle einen gültigen Ort aus.'
+  }
+
   if (error.fieldErrors.date) {
     fieldErrors.date = error.fieldErrors.date
   }
@@ -396,12 +559,29 @@ function applyBackendFieldErrors(error: ApiError) {
 async function submitForm() {
   saveErrorMessage.value = ''
 
+  if (isEditForbidden.value) {
+    saveErrorMessage.value = 'Du darfst diesen Eintrag nicht bearbeiten.'
+    redirectAwayIfEditForbidden()
+    return
+  }
+
   if (isWaitingForBackendProfile.value) {
     saveErrorMessage.value = 'Dein Profil wird noch geladen. Bitte warte einen Moment.'
     return
   }
 
   if (!validateForm()) {
+    saveErrorMessage.value = 'Bitte prüfe die markierten Felder.'
+    return
+  }
+
+  const effectiveUserId =
+    canChooseReporter.value && form.userId
+      ? form.userId
+      : authStore.currentUser?.id ?? form.userId
+
+  if (!effectiveUserId) {
+    fieldErrors.userId = 'Bitte melde dich zuerst an.'
     saveErrorMessage.value = 'Bitte prüfe die markierten Felder.'
     return
   }
@@ -415,24 +595,18 @@ async function submitForm() {
       description: form.description.trim(),
       category: form.category.trim(),
       location: form.location.trim(),
-      userId:
-        canChooseReporter.value && form.userId
-          ? form.userId
-          : authStore.currentUser?.id ?? form.userId,
-    }
-
-    const inputForBackend: ItemInput = {
-      ...cleanedInput,
-      userId: cleanedInput.userId || 1,
+      latitude: form.latitude,
+      longitude: form.longitude,
+      userId: effectiveUserId,
     }
 
     if (isEditMode.value && itemId.value !== null) {
-      const updatedItem = await updateItem(itemId.value, inputForBackend)
+      const updatedItem = await updateItem(itemId.value, cleanedInput)
       router.push(`/items/${updatedItem.id}`)
       return
     }
 
-    const newItem = await createItem(inputForBackend)
+    const newItem = await createItem(cleanedInput)
     router.push(`/items/${newItem.id}`)
   } catch (error) {
     console.error(error)
@@ -473,6 +647,7 @@ watch(
   async () => {
     syncReporterWithLogin()
     checkEditPermission()
+    redirectAwayIfEditForbidden()
 
     if (canChooseReporter.value) {
       await loadReporterOptions()
@@ -480,9 +655,32 @@ watch(
   },
 )
 
+watch(
+  () => authStore.externalAuthLoaded,
+  () => {
+    redirectToLoginIfRequired()
+  },
+)
+
+watch(
+  () => isAuth0Authenticated.value,
+  () => {
+    redirectToLoginIfRequired()
+  },
+)
+
+watch(
+  () => isEditForbidden.value,
+  () => {
+    redirectAwayIfEditForbidden()
+  },
+)
+
 onMounted(async () => {
+  redirectToLoginIfRequired()
   syncReporterWithLogin()
   await Promise.all([loadCategories(), loadReporterOptions(), loadExistingItem()])
+  redirectAwayIfEditForbidden()
 })
 </script>
 
@@ -500,8 +698,8 @@ onMounted(async () => {
       <div v-if="hasMissingBackendProfile" class="card profile-error-box">
         <strong>Backend-Profil konnte nicht geladen werden.</strong>
         <p>
-          Du bist bei Auth0 angemeldet, aber findIT konnte dein Profil im Backend nicht laden.
-          Prüfe bitte, ob die Auth0 Action für E-Mail und Rollen im Access Token aktiv ist.
+          Du bist angemeldet, aber findIT konnte dein Profil im Backend nicht laden.
+          Bitte melde dich erneut an.
         </p>
       </div>
 
@@ -518,7 +716,7 @@ onMounted(async () => {
       </div>
 
       <form
-        v-else-if="!isUnauthorized"
+        v-else-if="!isUnauthorized && !isEditForbidden"
         class="card item-form"
         @submit.prevent="submitForm"
         novalidate
@@ -578,18 +776,53 @@ onMounted(async () => {
           </div>
 
           <div class="form-group">
-            <label for="location">Ort</label>
-            <input
-              id="location"
-              v-model="form.location"
-              type="text"
-              placeholder="z. B. Bibliothek, Mensa, Gebäude F"
-              :class="{ 'input-invalid': fieldErrors.location }"
-              @input="fieldErrors.location = ''"
-            />
+            <label for="location">Ort suchen</label>
+
+            <div class="location-search-row">
+              <input
+                id="location"
+                v-model="locationQuery"
+                type="text"
+                placeholder="z. B. Mensa HTWG Konstanz"
+                :class="{ 'input-invalid': fieldErrors.location }"
+                @input="handleLocationInput"
+                @keydown.enter.prevent="searchLocation"
+              />
+
+              <button
+                type="button"
+                class="btn-secondary location-search-button"
+                :disabled="isSearchingLocation"
+                @click="searchLocation"
+              >
+                {{ isSearchingLocation ? 'Sucht...' : 'Ort suchen' }}
+              </button>
+            </div>
+
+            <small class="coordinate-hint">
+              Position: {{ coordinateLabel }}
+            </small>
+
             <small v-if="fieldErrors.location" class="field-error">
               {{ fieldErrors.location }}
             </small>
+
+            <small v-if="locationSearchMessage" class="field-error">
+              {{ locationSearchMessage }}
+            </small>
+
+            <div v-if="locationResults.length > 0" class="location-results">
+              <button
+                v-for="result in locationResults"
+                :key="`${result.latitude}-${result.longitude}-${result.displayName}`"
+                type="button"
+                class="location-result"
+                @click="selectLocation(result)"
+              >
+                <strong>{{ result.shortName }}</strong>
+                <span>{{ result.displayName }}</span>
+              </button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -773,6 +1006,57 @@ onMounted(async () => {
   line-height: 1.4;
 }
 
+.coordinate-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.location-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.location-search-button {
+  white-space: nowrap;
+}
+
+.location-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.location-result {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+}
+
+.location-result:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #eff6ff;
+}
+
+.location-result strong {
+  color: #0f172a;
+}
+
+.location-result span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .input-invalid {
   border-color: #fca5a5 !important;
   background: #fff7f7 !important;
@@ -838,12 +1122,18 @@ select:disabled {
     padding: 18px;
   }
 
+  .actions,
+  .location-search-row {
+    grid-template-columns: 1fr;
+  }
+
   .actions {
     flex-direction: column;
   }
 
   .actions a,
-  .actions button {
+  .actions button,
+  .location-search-row button {
     width: 100%;
   }
 

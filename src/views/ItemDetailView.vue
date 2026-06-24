@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import ActionDialog from '../components/ActionDialog.vue'
 import { createContactRequest } from '../services/contactRequestService'
@@ -43,13 +43,15 @@ const contactForm = reactive({
   message: '',
 })
 
-const itemId = computed(() => Number(route.params.id))
+const itemId = computed(() => {
+  const rawId = route.params.id
+  const parsedId = Number(rawId)
+
+  return Number.isFinite(parsedId) ? parsedId : null
+})
 
 const isCurrentUserAdmin = computed(() => {
-  return (
-    authStore.currentUser?.role === 'ADMIN' &&
-    authStore.currentUser.email === 'admin@findit.htwg-konstanz.de'
-  )
+  return authStore.currentUser?.role === 'ADMIN'
 })
 
 const canManageCurrentItem = computed(() => {
@@ -99,15 +101,26 @@ const isDialogLoading = computed(() => {
 })
 
 async function loadItem() {
+  const currentItemId = itemId.value
+
+  if (currentItemId === null) {
+    item.value = null
+    matches.value = []
+    errorMessage.value = 'Ungültige Eintrags-ID.'
+    return
+  }
+
   isLoading.value = true
   errorMessage.value = ''
+  resetPageMessages()
 
   try {
-    item.value = await getItemById(itemId.value)
+    item.value = await getItemById(currentItemId)
     await loadMatches()
   } catch (error) {
     console.error(error)
     item.value = null
+    matches.value = []
     errorMessage.value = 'Der Eintrag konnte nicht geladen werden.'
   } finally {
     isLoading.value = false
@@ -115,11 +128,18 @@ async function loadItem() {
 }
 
 async function loadMatches() {
+  const currentItemId = itemId.value
+
+  if (currentItemId === null) {
+    matches.value = []
+    return
+  }
+
   isLoadingMatches.value = true
   matchErrorMessage.value = ''
 
   try {
-    matches.value = await getPossibleMatches(itemId.value)
+    matches.value = await getPossibleMatches(currentItemId)
   } catch (error) {
     console.error(error)
     matches.value = []
@@ -127,6 +147,16 @@ async function loadMatches() {
   } finally {
     isLoadingMatches.value = false
   }
+}
+
+function resetPageMessages() {
+  matchErrorMessage.value = ''
+  contactSuccessMessage.value = ''
+  contactErrorMessage.value = ''
+  returnSuccessMessage.value = ''
+  returnErrorMessage.value = ''
+  deleteErrorMessage.value = ''
+  dialogMode.value = null
 }
 
 async function submitContactRequest() {
@@ -292,6 +322,17 @@ function statusBadgeClass(status: ItemStatus) {
 
   return classes[status]
 }
+
+watch(
+  () => route.params.id,
+  async () => {
+    await loadItem()
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    })
+  },
+)
 
 onMounted(loadItem)
 </script>
