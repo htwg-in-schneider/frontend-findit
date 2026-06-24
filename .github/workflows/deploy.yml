@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-
+      - aufgabe5
   workflow_dispatch:
 
 permissions:
@@ -14,18 +14,20 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build frontend
     runs-on: ubuntu-latest
 
+    environment:
+      name: github-pages
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -34,31 +36,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend
+      - name: Build
         run: npm run build
         env:
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_BASE_PATH: ${{ secrets.VITE_BASE_PATH }}
           VITE_AUTH_ENABLED: ${{ secrets.VITE_AUTH_ENABLED }}
           VITE_AUTH0_DOMAIN: ${{ secrets.VITE_AUTH0_DOMAIN }}
           VITE_AUTH0_CLIENT_ID: ${{ secrets.VITE_AUTH0_CLIENT_ID }}
           VITE_AUTH0_AUDIENCE: ${{ secrets.VITE_AUTH0_AUDIENCE }}
-          VITE_AUTH0_REDIRECT_URI: ${{ secrets.VITE_AUTH0_REDIRECT_URI }}
-          VITE_AUTH0_LOGOUT_RETURN_TO: ${{ secrets.VITE_AUTH0_LOGOUT_RETURN_TO }}
 
-      - name: Upload build artifact
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
-  deploy:
-    name: Deploy frontend
-    needs: build
-    runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-
-    steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
