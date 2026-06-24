@@ -1,4 +1,4 @@
-import { apiUrl, handleResponse } from '../config/api'
+import { apiFetch, handleResponse } from '../config/api'
 
 export { ApiError } from '../config/api'
 
@@ -27,18 +27,18 @@ export interface ContactRequestInput {
 }
 
 export async function getContactRequests(): Promise<ContactRequest[]> {
-  return handleResponse<ContactRequest[]>(await fetch(apiUrl('/contact-requests')))
+  return handleResponse<ContactRequest[]>(await apiFetch('/contact-requests'))
 }
 
 export async function getContactRequestsByItem(itemId: number): Promise<ContactRequest[]> {
   return handleResponse<ContactRequest[]>(
-    await fetch(apiUrl(`/contact-requests/item/${itemId}`)),
+    await apiFetch(`/contact-requests/item/${itemId}`),
   )
 }
 
 export async function createContactRequest(input: ContactRequestInput): Promise<ContactRequest> {
   return handleResponse<ContactRequest>(
-    await fetch(apiUrl('/contact-requests'), {
+    await apiFetch('/contact-requests', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -56,7 +56,7 @@ export async function updateContactRequestStatus(
   params.set('status', status)
 
   return handleResponse<ContactRequest>(
-    await fetch(apiUrl(`/contact-requests/${id}/status?${params.toString()}`), {
+    await apiFetch(`/contact-requests/${id}/status?${params.toString()}`, {
       method: 'PUT',
     }),
   )

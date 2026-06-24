@@ -1,4 +1,4 @@
-import { apiUrl, handleResponse } from '../config/api'
+import { apiFetch, handleResponse } from '../config/api'
 
 export { ApiError } from '../config/api'
 
@@ -55,16 +55,16 @@ export const users: User[] = [
 ]
 
 export async function getItems(): Promise<Item[]> {
-  return handleResponse<Item[]>(await fetch(apiUrl('/items')))
+  return handleResponse<Item[]>(await apiFetch('/items'))
 }
 
 export async function getItemById(id: number): Promise<Item> {
-  return handleResponse<Item>(await fetch(apiUrl(`/items/${id}`)))
+  return handleResponse<Item>(await apiFetch(`/items/${id}`))
 }
 
 export async function createItem(input: ItemInput): Promise<Item> {
   return handleResponse<Item>(
-    await fetch(apiUrl('/items'), {
+    await apiFetch('/items', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@ export async function createItem(input: ItemInput): Promise<Item> {
 
 export async function updateItem(id: number, input: ItemInput): Promise<Item> {
   return handleResponse<Item>(
-    await fetch(apiUrl(`/items/${id}`), {
+    await apiFetch(`/items/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -88,7 +88,7 @@ export async function updateItem(id: number, input: ItemInput): Promise<Item> {
 
 export async function deleteItem(id: number): Promise<void> {
   await handleResponse<void>(
-    await fetch(apiUrl(`/items/${id}`), {
+    await apiFetch(`/items/${id}`, {
       method: 'DELETE',
     }),
   )
@@ -96,14 +96,14 @@ export async function deleteItem(id: number): Promise<void> {
 
 export async function markItemAsReturned(id: number): Promise<Item> {
   return handleResponse<Item>(
-    await fetch(apiUrl(`/items/${id}/return`), {
+    await apiFetch(`/items/${id}/return`, {
       method: 'PUT',
     }),
   )
 }
 
 export async function getPossibleMatches(id: number): Promise<Item[]> {
-  return handleResponse<Item[]>(await fetch(apiUrl(`/items/${id}/matches`)))
+  return handleResponse<Item[]>(await apiFetch(`/items/${id}/matches`))
 }
 
 export async function searchAndFilterItems(filters: ItemFilters): Promise<Item[]> {
@@ -122,9 +122,9 @@ export async function searchAndFilterItems(filters: ItemFilters): Promise<Item[]
   }
 
   const hasBackendFilters = params.toString().length > 0
-  const url = hasBackendFilters ? apiUrl(`/items/filter?${params.toString()}`) : apiUrl('/items')
+  const url = hasBackendFilters ? `/items/filter?${params.toString()}` : '/items'
 
-  const loadedItems = await handleResponse<Item[]>(await fetch(url))
+  const loadedItems = await handleResponse<Item[]>(await apiFetch(url))
 
   const search = filters.query?.trim().toLowerCase()
 

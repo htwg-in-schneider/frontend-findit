@@ -1,11 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useAuth0 } from '@auth0/auth0-vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  AUTH0_AUDIENCE,
+  AUTH_CONFIGURATION_INCOMPLETE,
+  AUTH_ENABLED,
+} from '../config/auth'
 import { useAuthStore, type AuthUser } from '../stores/authStores'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+const auth0 = AUTH_ENABLED ? useAuth0() : null
 
 const redirectTarget = computed(() => {
   const redirect = route.query.redirect
@@ -13,13 +21,48 @@ const redirectTarget = computed(() => {
   return typeof redirect === 'string' ? redirect : '/items'
 })
 
+const auth0IsLoading = computed(() => auth0?.isLoading.value ?? false)
+const auth0IsAuthenticated = computed(() => auth0?.isAuthenticated.value ?? false)
+
 function login(user: AuthUser) {
   authStore.login(user.id)
   router.push(redirectTarget.value)
 }
 
+function loginWithAuth0() {
+  if (!auth0) {
+    return
+  }
+
+  if (AUTH0_AUDIENCE) {
+    auth0.loginWithRedirect({
+      appState: {
+        target: redirectTarget.value,
+      },
+      authorizationParams: {
+        audience: AUTH0_AUDIENCE,
+      },
+    })
+    return
+  }
+
+  auth0.loginWithRedirect({
+    appState: {
+      target: redirectTarget.value,
+    },
+  })
+}
+
 function logout() {
   authStore.logout()
+
+  if (auth0) {
+    auth0.logout({
+      logoutParams: {
+        returnTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      },
+    })
+  }
 }
 
 function roleLabel(role: AuthUser['role']) {
@@ -34,59 +77,104 @@ function roleLabel(role: AuthUser['role']) {
         <p class="eyebrow">findIT Login</p>
         <h1 class="section-title">Einloggen und findIT nutzen</h1>
         <p class="section-subtitle">
-          Wähle für die Entwicklung einen Demo-Zugang. Nutzer können Gegenstände melden und
-          bearbeiten. Admins erhalten zusätzlich Zugriff auf Verwaltung, Kontaktanfragen, Nutzer und
-          Kategorien.
+          Melde dich an, um Gegenstände zu melden und eigene Einträge zu verwalten.
+          Admins erhalten zusätzlich Zugriff auf Nutzer, Kategorien und Kontaktanfragen.
         </p>
       </div>
 
       <div class="card login-card">
-        <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
-          <div class="user-avatar">
-            {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
+        <div v-if="AUTH_CONFIGURATION_INCOMPLETE" class="config-warning">
+          Auth0 ist aktiviert, aber Domain oder Client-ID fehlen noch in den Environment Variables.
+        </div>
+
+        <template v-if="AUTH_ENABLED">
+          <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
+            <div class="user-avatar">
+              {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
+            </div>
+
+            <div>
+              <p>Aktuell eingeloggt als</p>
+              <strong>{{ authStore.currentUser.name }}</strong>
+              <span>{{ roleLabel(authStore.currentUser.role) }}</span>
+            </div>
+
+            <button type="button" class="btn-secondary" @click="logout">
+              Ausloggen
+            </button>
           </div>
 
           <div>
-            <p>Aktuell eingeloggt als</p>
-            <strong>{{ authStore.currentUser.name }}</strong>
-            <span>{{ roleLabel(authStore.currentUser.role) }}</span>
+            <h2>Login mit Auth0</h2>
+            <p class="login-hint">
+              Du wirst zur Auth0-Anmeldeseite weitergeleitet. Nach erfolgreichem Login wird dein
+              Backend-Profil geladen.
+            </p>
           </div>
 
-          <button type="button" class="btn-secondary" @click="logout">
-            Ausloggen
-          </button>
-        </div>
-
-        <div>
-          <h2>Demo-Zugang wählen</h2>
-          <p class="login-hint">
-            Für die Abgabe kann später dokumentiert werden, mit welchem Nutzer und Admin die
-            Anwendung getestet werden kann.
-          </p>
-        </div>
-
-        <div class="user-list">
-          <article
-            v-for="user in authStore.users"
-            :key="user.id"
-            class="user-option"
-            :class="{ admin: user.role === 'ADMIN' }"
+          <button
+            type="button"
+            class="btn-primary auth0-login-button"
+            :disabled="auth0IsLoading || auth0IsAuthenticated"
+            @click="loginWithAuth0"
           >
+            {{
+              auth0IsLoading
+                ? 'Login wird geprüft...'
+                : auth0IsAuthenticated
+                  ? 'Bereits eingeloggt'
+                  : 'Mit Auth0 einloggen'
+            }}
+          </button>
+        </template>
+
+        <template v-else>
+          <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
             <div class="user-avatar">
-              {{ user.name.charAt(0).toUpperCase() }}
+              {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
             </div>
 
-            <div class="user-info">
-              <h3>{{ user.name }}</h3>
-              <p>{{ user.email }}</p>
-              <span>{{ roleLabel(user.role) }}</span>
+            <div>
+              <p>Aktuell eingeloggt als</p>
+              <strong>{{ authStore.currentUser.name }}</strong>
+              <span>{{ roleLabel(authStore.currentUser.role) }}</span>
             </div>
 
-            <button type="button" class="btn-primary" @click="login(user)">
-              Einloggen
+            <button type="button" class="btn-secondary" @click="logout">
+              Ausloggen
             </button>
-          </article>
-        </div>
+          </div>
+
+          <div>
+            <h2>Demo-Zugang wählen</h2>
+            <p class="login-hint">
+              Für die lokale Entwicklung kannst du einen Demo-Zugang auswählen.
+            </p>
+          </div>
+
+          <div class="user-list">
+            <article
+              v-for="user in authStore.users"
+              :key="user.id"
+              class="user-option"
+              :class="{ admin: user.role === 'ADMIN' }"
+            >
+              <div class="user-avatar">
+                {{ user.name.charAt(0).toUpperCase() }}
+              </div>
+
+              <div class="user-info">
+                <h3>{{ user.name }}</h3>
+                <p>{{ user.email }}</p>
+                <span>{{ roleLabel(user.role) }}</span>
+              </div>
+
+              <button type="button" class="btn-primary" @click="login(user)">
+                Einloggen
+              </button>
+            </article>
+          </div>
+        </template>
       </div>
     </div>
   </section>
@@ -121,6 +209,15 @@ function roleLabel(role: AuthUser['role']) {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.config-warning {
+  padding: 14px 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 16px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 800;
 }
 
 .current-user-box {
@@ -210,6 +307,10 @@ function roleLabel(role: AuthUser['role']) {
   color: #1e40af;
 }
 
+.auth0-login-button {
+  width: fit-content;
+}
+
 @media (max-width: 900px) {
   .login-layout {
     grid-template-columns: 1fr;
@@ -221,7 +322,8 @@ function roleLabel(role: AuthUser['role']) {
   }
 
   .user-option button,
-  .current-user-box button {
+  .current-user-box button,
+  .auth0-login-button {
     width: 100%;
   }
 }

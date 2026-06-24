@@ -1,4 +1,4 @@
-import { apiUrl, handleResponse } from '../config/api'
+import { apiFetch, handleResponse } from '../config/api'
 
 export { ApiError } from '../config/api'
 
@@ -14,12 +14,12 @@ export interface CategoryInput {
 }
 
 export async function getCategories(): Promise<Category[]> {
-  return handleResponse<Category[]>(await fetch(apiUrl('/categories')))
+  return handleResponse<Category[]>(await apiFetch('/categories'))
 }
 
 export async function createCategory(input: CategoryInput): Promise<Category> {
   return handleResponse<Category>(
-    await fetch(apiUrl('/categories'), {
+    await apiFetch('/categories', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,7 +31,7 @@ export async function createCategory(input: CategoryInput): Promise<Category> {
 
 export async function updateCategory(id: number, input: CategoryInput): Promise<Category> {
   return handleResponse<Category>(
-    await fetch(apiUrl(`/categories/${id}`), {
+    await apiFetch(`/categories/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -43,7 +43,7 @@ export async function updateCategory(id: number, input: CategoryInput): Promise<
 
 export async function deleteCategory(id: number): Promise<void> {
   await handleResponse<void>(
-    await fetch(apiUrl(`/categories/${id}`), {
+    await apiFetch(`/categories/${id}`, {
       method: 'DELETE',
     }),
   )

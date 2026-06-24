@@ -1,4 +1,4 @@
-import { apiUrl, handleResponse } from '../config/api'
+import { apiFetch, handleResponse } from '../config/api'
 
 export { ApiError } from '../config/api'
 
@@ -14,12 +14,12 @@ export interface UserInput {
 }
 
 export async function getUsers(): Promise<User[]> {
-  return handleResponse<User[]>(await fetch(apiUrl('/users')))
+  return handleResponse<User[]>(await apiFetch('/users'))
 }
 
 export async function createUser(input: UserInput): Promise<User> {
   return handleResponse<User>(
-    await fetch(apiUrl('/users'), {
+    await apiFetch('/users', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,7 +31,7 @@ export async function createUser(input: UserInput): Promise<User> {
 
 export async function updateUser(id: number, input: UserInput): Promise<User> {
   return handleResponse<User>(
-    await fetch(apiUrl(`/users/${id}`), {
+    await apiFetch(`/users/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -43,7 +43,7 @@ export async function updateUser(id: number, input: UserInput): Promise<User> {
 
 export async function deleteUser(id: number): Promise<void> {
   await handleResponse<void>(
-    await fetch(apiUrl(`/users/${id}`), {
+    await apiFetch(`/users/${id}`, {
       method: 'DELETE',
     }),
   )

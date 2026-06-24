@@ -1,18 +1,35 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { useAuth0 } from '@auth0/auth0-vue'
+import Auth0Bridge from './components/Auth0Bridge.vue'
+import { AUTH0_LOGOUT_RETURN_TO, AUTH_ENABLED } from './config/auth'
 import { useAuthStore } from './stores/authStores'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const auth0 = AUTH_ENABLED ? useAuth0() : null
+
 function logout() {
   authStore.logout()
+
+  if (AUTH_ENABLED && auth0) {
+    auth0.logout({
+      logoutParams: {
+        returnTo: AUTH0_LOGOUT_RETURN_TO,
+      },
+    })
+    return
+  }
+
   router.push('/')
 }
 </script>
 
 <template>
   <div class="app">
+    <Auth0Bridge v-if="AUTH_ENABLED" />
+
     <header class="site-header">
       <div class="container nav-container">
         <RouterLink to="/" class="logo" aria-label="findIT Startseite">

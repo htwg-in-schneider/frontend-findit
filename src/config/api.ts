@@ -1,3 +1,5 @@
+import { getAccessToken } from '../services/authTokenService'
+
 const DEFAULT_API_BASE_URL = 'http://localhost:8080/api'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
@@ -25,6 +27,21 @@ export function apiUrl(path: string) {
   const cleanedPath = path.startsWith('/') ? path : `/${path}`
 
   return `${API_BASE_URL}${cleanedPath}`
+}
+
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers)
+
+  const token = await getAccessToken()
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  return fetch(apiUrl(path), {
+    ...init,
+    headers,
+  })
 }
 
 async function createApiError(response: Response): Promise<ApiError> {
