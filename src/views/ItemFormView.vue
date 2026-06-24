@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuth0 } from '@auth0/auth0-vue'
+import { AUTH_ENABLED } from '../config/auth'
 import { getCategories, type Category } from '../services/categoryService'
+import { getUsers } from '../services/userService'
 import {
   ApiError,
   createItem,
   getItemById,
   updateItem,
-  users,
   type ItemInput,
   type ItemStatus,
   type ItemType,
@@ -18,15 +20,19 @@ import { useAuthStore } from '../stores/authStores'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const auth0 = AUTH_ENABLED ? useAuth0() : null
 
 const isLoading = ref(false)
 const isLoadingCategories = ref(false)
+const isLoadingUsers = ref(false)
 
 const loadErrorMessage = ref('')
 const saveErrorMessage = ref('')
 const isUnauthorized = ref(false)
 
 const categories = ref<Category[]>([])
+const reporterOptions = ref<User[]>([])
+const loadedReporter = ref<User | null>(null)
 
 const fallbackCategories = [
   'Elektronik',
@@ -68,21 +74,47 @@ const itemId = computed(() => {
 })
 
 const isEditMode = computed(() => itemId.value !== null)
+const canChooseReporter = computed(() => authStore.isAdmin)
 
-const canChooseReporter = computed(() => {
+const isAuth0Authenticated = computed(() => {
+  if (!AUTH_ENABLED) {
+    return authStore.isAuthenticated
+  }
+
+  return auth0?.isAuthenticated.value ?? authStore.externalAuthAuthenticated
+})
+
+const isWaitingForBackendProfile = computed(() => {
   return (
-    authStore.currentUser?.role === 'ADMIN' &&
-    authStore.currentUser.email === 'admin@findit.htwg-konstanz.de'
+    AUTH_ENABLED &&
+    isAuth0Authenticated.value &&
+    !authStore.currentUser &&
+    authStore.isSyncingExternalUser
   )
 })
 
-function getInitialReporterId() {
-  if (canChooseReporter.value) {
-    return users[0]?.id ?? 1
+const hasMissingBackendProfile = computed(() => {
+  return (
+    AUTH_ENABLED &&
+    isAuth0Authenticated.value &&
+    !authStore.currentUser &&
+    !authStore.isSyncingExternalUser
+  )
+})
+
+const fallbackAuth0Reporter = computed<User | null>(() => {
+  const auth0User = auth0?.user.value
+
+  if (!auth0User) {
+    return null
   }
 
-  return authStore.currentUser?.id ?? users[0]?.id ?? 1
-}
+  return {
+    id: 0,
+    name: auth0User.name || auth0User.nickname || 'Angemeldeter Nutzer',
+    email: auth0User.email || '',
+  }
+})
 
 const form = reactive<ItemInput>({
   title: '',
@@ -92,17 +124,21 @@ const form = reactive<ItemInput>({
   location: '',
   date: todayString,
   status: 'OPEN',
-  userId: getInitialReporterId(),
+  userId: authStore.currentUser?.id ?? 0,
 })
 
 const selectedReporter = computed<User | null>(() => {
-  const staticUser = users.find((user) => user.id === form.userId)
+  const backendUser = reporterOptions.value.find((user) => user.id === form.userId)
 
-  if (staticUser) {
-    return staticUser
+  if (backendUser) {
+    return backendUser
   }
 
-  if (authStore.currentUser && authStore.currentUser.id === form.userId) {
+  if (loadedReporter.value && loadedReporter.value.id === form.userId) {
+    return loadedReporter.value
+  }
+
+  if (authStore.currentUser) {
     return {
       id: authStore.currentUser.id,
       name: authStore.currentUser.name,
@@ -110,7 +146,7 @@ const selectedReporter = computed<User | null>(() => {
     }
   }
 
-  return null
+  return fallbackAuth0Reporter.value
 })
 
 const categoryOptions = computed(() => {
@@ -140,12 +176,51 @@ const pageDescription = computed(() => {
     : 'Erfasse einen verlorenen oder gefundenen Gegenstand mit den wichtigsten Informationen.'
 })
 
+const submitButtonDisabled = computed(() => {
+  return isLoading.value || isWaitingForBackendProfile.value || hasMissingBackendProfile.value
+})
+
 function syncReporterWithLogin() {
-  if (!authStore.currentUser || canChooseReporter.value) {
+  if (!authStore.currentUser) {
     return
   }
 
-  form.userId = authStore.currentUser.id
+  if (!canChooseReporter.value) {
+    form.userId = authStore.currentUser.id
+    return
+  }
+
+  if (!form.userId) {
+    form.userId = authStore.currentUser.id
+  }
+}
+
+function checkEditPermission() {
+  if (!isEditMode.value) {
+    return
+  }
+
+  if (!loadedReporter.value) {
+    return
+  }
+
+  if (canChooseReporter.value) {
+    isUnauthorized.value = false
+    return
+  }
+
+  if (!authStore.currentUser) {
+    return
+  }
+
+  if (authStore.currentUser.id !== loadedReporter.value.id) {
+    isUnauthorized.value = true
+    loadErrorMessage.value =
+      'Du darfst diesen Eintrag nicht bearbeiten, weil er von einem anderen Nutzer gemeldet wurde.'
+  } else {
+    isUnauthorized.value = false
+    loadErrorMessage.value = ''
+  }
 }
 
 async function loadCategories() {
@@ -158,6 +233,36 @@ async function loadCategories() {
     categories.value = []
   } finally {
     isLoadingCategories.value = false
+  }
+}
+
+async function loadReporterOptions() {
+  if (!canChooseReporter.value) {
+    reporterOptions.value = []
+    return
+  }
+
+  isLoadingUsers.value = true
+
+  try {
+    const users = await getUsers()
+
+    reporterOptions.value = users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    }))
+
+    const firstReporter = reporterOptions.value[0]
+
+    if (!form.userId && firstReporter) {
+      form.userId = authStore.currentUser?.id ?? firstReporter.id
+    }
+  } catch (error) {
+    console.error(error)
+    reporterOptions.value = []
+  } finally {
+    isLoadingUsers.value = false
   }
 }
 
@@ -175,12 +280,7 @@ async function loadExistingItem() {
   try {
     const item = await getItemById(itemId.value)
 
-    if (!canChooseReporter.value && authStore.currentUser?.id !== item.user.id) {
-      isUnauthorized.value = true
-      loadErrorMessage.value =
-        'Du darfst diesen Eintrag nicht bearbeiten, weil er von einem anderen Nutzer gemeldet wurde.'
-      return
-    }
+    loadedReporter.value = item.user
 
     form.title = item.title
     form.description = item.description
@@ -190,6 +290,8 @@ async function loadExistingItem() {
     form.date = item.date
     form.status = item.status
     form.userId = item.user.id
+
+    checkEditPermission()
   } catch (error) {
     console.error(error)
     loadErrorMessage.value = 'Der Eintrag konnte nicht geladen werden.'
@@ -227,6 +329,15 @@ function validateForm() {
   clearFieldErrors()
   syncReporterWithLogin()
 
+  if (!isAuth0Authenticated.value) {
+    fieldErrors.userId = 'Bitte melde dich zuerst an.'
+  }
+
+  if (hasMissingBackendProfile.value) {
+    fieldErrors.userId =
+      'Dein Backend-Profil konnte noch nicht geladen werden. Bitte lade die Seite neu oder prüfe die Auth0-Claims.'
+  }
+
   if (!form.title.trim()) {
     fieldErrors.title = 'Bitte gib einen Titel ein.'
   }
@@ -243,8 +354,12 @@ function validateForm() {
     fieldErrors.location = 'Bitte gib einen Ort ein.'
   }
 
-  if (!form.userId) {
+  if (!AUTH_ENABLED && !form.userId) {
     fieldErrors.userId = 'Bitte wähle einen meldenden Nutzer aus.'
+  }
+
+  if (AUTH_ENABLED && authStore.currentUser && !form.userId) {
+    form.userId = authStore.currentUser.id
   }
 
   validateDateField()
@@ -281,6 +396,11 @@ function applyBackendFieldErrors(error: ApiError) {
 async function submitForm() {
   saveErrorMessage.value = ''
 
+  if (isWaitingForBackendProfile.value) {
+    saveErrorMessage.value = 'Dein Profil wird noch geladen. Bitte warte einen Moment.'
+    return
+  }
+
   if (!validateForm()) {
     saveErrorMessage.value = 'Bitte prüfe die markierten Felder.'
     return
@@ -301,13 +421,18 @@ async function submitForm() {
           : authStore.currentUser?.id ?? form.userId,
     }
 
+    const inputForBackend: ItemInput = {
+      ...cleanedInput,
+      userId: cleanedInput.userId || 1,
+    }
+
     if (isEditMode.value && itemId.value !== null) {
-      const updatedItem = await updateItem(itemId.value, cleanedInput)
+      const updatedItem = await updateItem(itemId.value, inputForBackend)
       router.push(`/items/${updatedItem.id}`)
       return
     }
 
-    const newItem = await createItem(cleanedInput)
+    const newItem = await createItem(inputForBackend)
     router.push(`/items/${newItem.id}`)
   } catch (error) {
     console.error(error)
@@ -343,9 +468,21 @@ function statusLabel(status: ItemStatus) {
   return labels[status]
 }
 
+watch(
+  () => authStore.currentUser,
+  async () => {
+    syncReporterWithLogin()
+    checkEditPermission()
+
+    if (canChooseReporter.value) {
+      await loadReporterOptions()
+    }
+  },
+)
+
 onMounted(async () => {
   syncReporterWithLogin()
-  await Promise.all([loadCategories(), loadExistingItem()])
+  await Promise.all([loadCategories(), loadReporterOptions(), loadExistingItem()])
 })
 </script>
 
@@ -357,6 +494,14 @@ onMounted(async () => {
         <h1 class="section-title">{{ pageTitle }}</h1>
         <p class="section-subtitle">
           {{ pageDescription }}
+        </p>
+      </div>
+
+      <div v-if="hasMissingBackendProfile" class="card profile-error-box">
+        <strong>Backend-Profil konnte nicht geladen werden.</strong>
+        <p>
+          Du bist bei Auth0 angemeldet, aber findIT konnte dein Profil im Backend nicht laden.
+          Prüfe bitte, ob die Auth0 Action für E-Mail und Rollen im Access Token aktiv ist.
         </p>
       </div>
 
@@ -380,6 +525,10 @@ onMounted(async () => {
       >
         <div v-if="saveErrorMessage" class="form-alert">
           {{ saveErrorMessage }}
+        </div>
+
+        <div v-if="isWaitingForBackendProfile" class="info-alert">
+          Dein Profil wird geladen...
         </div>
 
         <div class="form-grid">
@@ -473,10 +622,15 @@ onMounted(async () => {
             <select
               id="user"
               v-model.number="form.userId"
+              :disabled="isLoadingUsers"
               :class="{ 'input-invalid': fieldErrors.userId }"
               @change="fieldErrors.userId = ''"
             >
-              <option v-for="user in users" :key="user.id" :value="user.id">
+              <option
+                v-for="user in reporterOptions"
+                :key="user.id"
+                :value="user.id"
+              >
                 {{ user.name }} – {{ user.email }}
               </option>
             </select>
@@ -520,13 +674,15 @@ onMounted(async () => {
         </div>
 
         <div class="actions form-actions">
-          <button type="submit" class="btn-primary" :disabled="isLoading">
+          <button type="submit" class="btn-primary" :disabled="submitButtonDisabled">
             {{
               isLoading
                 ? 'Wird gespeichert...'
-                : isEditMode
-                  ? 'Änderungen speichern'
-                  : 'Eintrag erstellen'
+                : isWaitingForBackendProfile
+                  ? 'Profil wird geladen...'
+                  : isEditMode
+                    ? 'Änderungen speichern'
+                    : 'Eintrag erstellen'
             }}
           </button>
 
@@ -567,11 +723,18 @@ onMounted(async () => {
   margin-top: 24px;
 }
 
-.load-error-box {
+.load-error-box,
+.profile-error-box {
   max-width: 920px;
   border-color: #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.profile-error-box p {
+  margin: 8px 0 0;
+  color: #7f1d1d;
+  line-height: 1.6;
 }
 
 .unauthorized-actions {
@@ -587,6 +750,18 @@ onMounted(async () => {
   border-radius: 16px;
   background: #fef2f2;
   color: #991b1b;
+  font-weight: 800;
+}
+
+.info-alert {
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 22px;
+  padding: 12px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #eff6ff;
+  color: #1e40af;
   font-weight: 800;
 }
 
@@ -672,7 +847,8 @@ select:disabled {
     width: 100%;
   }
 
-  .form-alert {
+  .form-alert,
+  .info-alert {
     width: 100%;
   }
 

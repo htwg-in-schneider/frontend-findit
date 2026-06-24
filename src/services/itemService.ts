@@ -41,19 +41,6 @@ export interface ItemFilters {
   status?: string
 }
 
-export const users: User[] = [
-  {
-    id: 1,
-    name: 'Max Mustermann',
-    email: 'max.mustermann@htwg-konstanz.de',
-  },
-  {
-    id: 2,
-    name: 'Dennis Müller',
-    email: 'dennis.mueller@htwg-konstanz.de',
-  },
-]
-
 export async function getItems(): Promise<Item[]> {
   return handleResponse<Item[]>(await apiFetch('/items'))
 }

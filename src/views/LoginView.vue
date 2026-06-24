@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAuth0 } from '@auth0/auth0-vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   AUTH0_AUDIENCE,
+  AUTH0_REDIRECT_URI,
   AUTH_CONFIGURATION_INCOMPLETE,
   AUTH_ENABLED,
 } from '../config/auth'
-import { useAuthStore, type AuthUser } from '../stores/authStores'
+import { useAuthStore } from '../stores/authStores'
 
 const route = useRoute()
-const router = useRouter()
 const authStore = useAuthStore()
 
 const auth0 = AUTH_ENABLED ? useAuth0() : null
+
+const loginError = ref('')
 
 const redirectTarget = computed(() => {
   const redirect = route.query.redirect
@@ -24,48 +26,51 @@ const redirectTarget = computed(() => {
 const auth0IsLoading = computed(() => auth0?.isLoading.value ?? false)
 const auth0IsAuthenticated = computed(() => auth0?.isAuthenticated.value ?? false)
 
-function login(user: AuthUser) {
-  authStore.login(user.id)
-  router.push(redirectTarget.value)
+async function loginWithAuth0() {
+  await startAuth0Flow()
 }
 
-function loginWithAuth0() {
-  if (!auth0) {
+async function registerWithAuth0() {
+  await startAuth0Flow('signup')
+}
+
+async function startAuth0Flow(screenHint?: 'signup') {
+  loginError.value = ''
+
+  if (!AUTH_ENABLED) {
+    loginError.value = 'Authentifizierung ist deaktiviert. Bitte VITE_AUTH_ENABLED=true setzen.'
     return
   }
 
-  if (AUTH0_AUDIENCE) {
-    auth0.loginWithRedirect({
+  if (AUTH_CONFIGURATION_INCOMPLETE) {
+    loginError.value = 'Auth0 ist nicht vollständig konfiguriert. Domain oder Client-ID fehlt.'
+    return
+  }
+
+  if (!auth0) {
+    loginError.value = 'Auth0 konnte nicht initialisiert werden.'
+    return
+  }
+
+  try {
+    await auth0.loginWithRedirect({
       appState: {
         target: redirectTarget.value,
       },
       authorizationParams: {
-        audience: AUTH0_AUDIENCE,
+        audience: AUTH0_AUDIENCE || undefined,
+        redirect_uri: AUTH0_REDIRECT_URI,
+        screen_hint: screenHint,
+        prompt: 'login',
       },
     })
-    return
-  }
-
-  auth0.loginWithRedirect({
-    appState: {
-      target: redirectTarget.value,
-    },
-  })
-}
-
-function logout() {
-  authStore.logout()
-
-  if (auth0) {
-    auth0.logout({
-      logoutParams: {
-        returnTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
-      },
-    })
+  } catch (error) {
+    console.error(error)
+    loginError.value = 'Die Weiterleitung zu Auth0 konnte nicht gestartet werden.'
   }
 }
 
-function roleLabel(role: AuthUser['role']) {
+function roleLabel(role: string) {
   return role === 'ADMIN' ? 'Admin' : 'Nutzer'
 }
 </script>
@@ -75,47 +80,52 @@ function roleLabel(role: AuthUser['role']) {
     <div class="container login-layout">
       <div class="login-intro">
         <p class="eyebrow">findIT Login</p>
-        <h1 class="section-title">Einloggen und findIT nutzen</h1>
+        <h1 class="section-title">Einloggen oder Konto erstellen</h1>
         <p class="section-subtitle">
-          Melde dich an, um Gegenstände zu melden und eigene Einträge zu verwalten.
-          Admins erhalten zusätzlich Zugriff auf Nutzer, Kategorien und Kontaktanfragen.
+          Melde dich mit deinem findIT-Konto an oder erstelle ein neues Konto.
+          Nach dem Login kannst du Gegenstände melden und eigene Einträge verwalten.
         </p>
       </div>
 
       <div class="card login-card">
+        <div v-if="loginError" class="config-warning">
+          {{ loginError }}
+        </div>
+
         <div v-if="AUTH_CONFIGURATION_INCOMPLETE" class="config-warning">
           Auth0 ist aktiviert, aber Domain oder Client-ID fehlen noch in den Environment Variables.
         </div>
 
-        <template v-if="AUTH_ENABLED">
-          <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
-            <div class="user-avatar">
-              {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
-            </div>
+        <div v-if="!AUTH_ENABLED" class="config-warning">
+          Authentifizierung ist aktuell deaktiviert. Setze
+          <strong>VITE_AUTH_ENABLED=true</strong>, um den produktiven Login zu verwenden.
+        </div>
 
-            <div>
-              <p>Aktuell eingeloggt als</p>
-              <strong>{{ authStore.currentUser.name }}</strong>
-              <span>{{ roleLabel(authStore.currentUser.role) }}</span>
-            </div>
-
-            <button type="button" class="btn-secondary" @click="logout">
-              Ausloggen
-            </button>
+        <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
+          <div class="user-avatar">
+            {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
           </div>
 
           <div>
-            <h2>Login mit Auth0</h2>
-            <p class="login-hint">
-              Du wirst zur Auth0-Anmeldeseite weitergeleitet. Nach erfolgreichem Login wird dein
-              Backend-Profil geladen.
-            </p>
+            <p>Aktuell eingeloggt als</p>
+            <strong>{{ authStore.currentUser.name }}</strong>
+            <span>{{ roleLabel(authStore.currentUser.role) }}</span>
           </div>
+        </div>
 
+        <div>
+          <h2>Anmeldung</h2>
+          <p class="login-hint">
+            Die Anmeldung und Registrierung erfolgt sicher über Auth0. findIT speichert keine
+            Passwörter in der eigenen Anwendung.
+          </p>
+        </div>
+
+        <div class="auth0-actions">
           <button
             type="button"
-            class="btn-primary auth0-login-button"
-            :disabled="auth0IsLoading || auth0IsAuthenticated"
+            class="btn-primary"
+            :disabled="auth0IsLoading || auth0IsAuthenticated || !AUTH_ENABLED"
             @click="loginWithAuth0"
           >
             {{
@@ -123,58 +133,19 @@ function roleLabel(role: AuthUser['role']) {
                 ? 'Login wird geprüft...'
                 : auth0IsAuthenticated
                   ? 'Bereits eingeloggt'
-                  : 'Mit Auth0 einloggen'
+                  : 'Einloggen'
             }}
           </button>
-        </template>
 
-        <template v-else>
-          <div v-if="authStore.isAuthenticated && authStore.currentUser" class="current-user-box">
-            <div class="user-avatar">
-              {{ authStore.currentUser.name.charAt(0).toUpperCase() }}
-            </div>
-
-            <div>
-              <p>Aktuell eingeloggt als</p>
-              <strong>{{ authStore.currentUser.name }}</strong>
-              <span>{{ roleLabel(authStore.currentUser.role) }}</span>
-            </div>
-
-            <button type="button" class="btn-secondary" @click="logout">
-              Ausloggen
-            </button>
-          </div>
-
-          <div>
-            <h2>Demo-Zugang wählen</h2>
-            <p class="login-hint">
-              Für die lokale Entwicklung kannst du einen Demo-Zugang auswählen.
-            </p>
-          </div>
-
-          <div class="user-list">
-            <article
-              v-for="user in authStore.users"
-              :key="user.id"
-              class="user-option"
-              :class="{ admin: user.role === 'ADMIN' }"
-            >
-              <div class="user-avatar">
-                {{ user.name.charAt(0).toUpperCase() }}
-              </div>
-
-              <div class="user-info">
-                <h3>{{ user.name }}</h3>
-                <p>{{ user.email }}</p>
-                <span>{{ roleLabel(user.role) }}</span>
-              </div>
-
-              <button type="button" class="btn-primary" @click="login(user)">
-                Einloggen
-              </button>
-            </article>
-          </div>
-        </template>
+          <button
+            type="button"
+            class="btn-secondary"
+            :disabled="auth0IsLoading || auth0IsAuthenticated || !AUTH_ENABLED"
+            @click="registerWithAuth0"
+          >
+            Konto erstellen
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -213,16 +184,17 @@ function roleLabel(role: AuthUser['role']) {
 
 .config-warning {
   padding: 14px 16px;
-  border: 1px solid #fed7aa;
+  border: 1px solid #fecaca;
   border-radius: 16px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: #fef2f2;
+  color: #991b1b;
   font-weight: 800;
+  line-height: 1.5;
 }
 
 .current-user-box {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   gap: 16px;
   align-items: center;
   padding: 18px;
@@ -245,25 +217,10 @@ function roleLabel(role: AuthUser['role']) {
   font-weight: 900;
 }
 
-.user-list {
-  display: grid;
-  gap: 16px;
-}
-
-.user-option {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 16px;
-  align-items: center;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  background: white;
-}
-
-.user-option.admin {
-  border-color: rgba(37, 99, 235, 0.35);
-  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+.auth0-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .user-avatar {
@@ -278,52 +235,17 @@ function roleLabel(role: AuthUser['role']) {
   font-weight: 900;
 }
 
-.user-info {
-  min-width: 0;
-}
-
-.user-info h3 {
-  margin: 0 0 4px;
-}
-
-.user-info p {
-  margin: 0 0 8px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.user-info span {
-  display: inline-flex;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 900;
-}
-
-.user-option.admin .user-info span {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
-.auth0-login-button {
-  width: fit-content;
-}
-
 @media (max-width: 900px) {
   .login-layout {
     grid-template-columns: 1fr;
   }
 
-  .user-option,
   .current-user-box {
     grid-template-columns: 1fr;
   }
 
-  .user-option button,
-  .current-user-box button,
-  .auth0-login-button {
+  .auth0-actions,
+  .auth0-actions button {
     width: 100%;
   }
 }

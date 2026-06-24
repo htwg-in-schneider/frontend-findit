@@ -1,14 +1,39 @@
 <script setup lang="ts">
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, RouterView } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 import Auth0Bridge from './components/Auth0Bridge.vue'
 import { AUTH0_LOGOUT_RETURN_TO, AUTH_ENABLED } from './config/auth'
 import { useAuthStore } from './stores/authStores'
 
-const router = useRouter()
 const authStore = useAuthStore()
-
 const auth0 = AUTH_ENABLED ? useAuth0() : null
+
+const isLoggedIn = computed(() => {
+  if (AUTH_ENABLED) {
+    return auth0?.isAuthenticated.value ?? false
+  }
+
+  return authStore.isAuthenticated
+})
+
+const shownName = computed(() => {
+  if (authStore.currentUser) {
+    return authStore.currentUser.name
+  }
+
+  const auth0User = auth0?.user.value
+
+  if (auth0User?.name) {
+    return auth0User.name
+  }
+
+  if (auth0User?.email) {
+    return auth0User.email
+  }
+
+  return 'Angemeldet'
+})
 
 function logout() {
   authStore.logout()
@@ -19,10 +44,7 @@ function logout() {
         returnTo: AUTH0_LOGOUT_RETURN_TO,
       },
     })
-    return
   }
-
-  router.push('/')
 }
 </script>
 
@@ -50,16 +72,6 @@ function logout() {
 
               <circle cx="32" cy="26" r="12" fill="white" />
               <circle cx="32" cy="26" r="6" fill="#2563eb" />
-
-              <path
-                d="M43.5 16.5C47 20.2 48.2 25.6 46.4 30.4"
-                fill="none"
-                stroke="white"
-                stroke-width="4"
-                stroke-linecap="round"
-                opacity="0.75"
-              />
-
               <ellipse cx="32" cy="60" rx="15" ry="3.2" fill="#bfdbfe" />
             </svg>
           </span>
@@ -77,12 +89,12 @@ function logout() {
           <RouterLink :to="{ path: '/', hash: '#kontakt' }">Kontakt</RouterLink>
           <RouterLink to="/items/new" class="nav-button">Gegenstand melden</RouterLink>
 
-          <RouterLink v-if="!authStore.isAuthenticated" to="/login" class="login-link">
+          <RouterLink v-if="!isLoggedIn" to="/login" class="login-link">
             Login
           </RouterLink>
 
           <div v-else class="auth-pill">
-            <span>{{ authStore.displayName }}</span>
+            <span>{{ shownName }}</span>
             <button type="button" @click="logout">Logout</button>
           </div>
         </nav>

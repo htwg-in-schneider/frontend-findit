@@ -14,24 +14,24 @@ setAccessTokenProvider(async () => {
     return null
   }
 
-  if (AUTH0_AUDIENCE) {
-    return auth0.getAccessTokenSilently({
-      authorizationParams: {
-        audience: AUTH0_AUDIENCE,
-      },
-    })
-  }
-
-  return auth0.getAccessTokenSilently()
+  return auth0.getAccessTokenSilently({
+    authorizationParams: {
+      audience: AUTH0_AUDIENCE || undefined,
+    },
+  })
 })
 
 async function syncBackendProfile() {
   if (auth0.isLoading.value) {
+    authStore.setExternalAuthState(false, false)
     return
   }
 
+  authStore.setExternalAuthState(true, auth0.isAuthenticated.value)
+
   if (!auth0.isAuthenticated.value) {
     authStore.clearExternalUser()
+    authStore.setExternalSyncing(false)
     return
   }
 
@@ -47,7 +47,7 @@ async function syncBackendProfile() {
       role: profile.role,
     })
   } catch (error) {
-    console.error(error)
+    console.error('Backend-Profil konnte nicht geladen werden:', error)
     authStore.clearExternalUser()
   } finally {
     authStore.setExternalSyncing(false)

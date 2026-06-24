@@ -11,85 +11,53 @@ export interface AuthUser {
   role: UserRole
 }
 
-const STORAGE_KEY = 'findit-auth-user'
-
-const demoUsers: AuthUser[] = [
-  {
-    id: 1,
-    name: 'Max Mustermann',
-    email: 'max.mustermann@htwg-konstanz.de',
-    role: 'USER',
-  },
-  {
-    id: 2,
-    name: 'Dennis Müller',
-    email: 'dennis.mueller@htwg-konstanz.de',
-    role: 'USER',
-  },
-  {
-    id: 3,
-    name: 'Admin findIT',
-    email: 'admin@findit.htwg-konstanz.de',
-    role: 'ADMIN',
-  },
-]
-
-function loadStoredUser() {
-  if (AUTH_ENABLED) {
-    return null
-  }
-
-  const storedUser = localStorage.getItem(STORAGE_KEY)
-
-  if (!storedUser) {
-    return null
-  }
-
-  try {
-    return JSON.parse(storedUser) as AuthUser
-  } catch {
-    localStorage.removeItem(STORAGE_KEY)
-    return null
-  }
-}
-
 export const useAuthStore = defineStore('auth', () => {
-  const currentUser = ref<AuthUser | null>(loadStoredUser())
+  const currentUser = ref<AuthUser | null>(null)
   const isSyncingExternalUser = ref(false)
+  const externalAuthLoaded = ref(!AUTH_ENABLED)
+  const externalAuthAuthenticated = ref(false)
 
-  const users = computed(() => demoUsers)
-  const isAuthenticated = computed(() => currentUser.value !== null)
-  const isAdmin = computed(() => currentUser.value?.role === 'ADMIN')
-  const displayName = computed(() => currentUser.value?.name ?? 'Gast')
-
-  function login(userId: number) {
+  const isAuthenticated = computed(() => {
     if (AUTH_ENABLED) {
-      return
+      return externalAuthAuthenticated.value
     }
 
-    const selectedUser = demoUsers.find((user) => user.id === userId)
+    return currentUser.value !== null
+  })
 
-    if (!selectedUser) {
-      return
+  const hasBackendProfile = computed(() => currentUser.value !== null)
+
+  const isAdmin = computed(() => currentUser.value?.role === 'ADMIN')
+
+  const displayName = computed(() => {
+    if (currentUser.value) {
+      return currentUser.value.name
     }
 
-    currentUser.value = selectedUser
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedUser))
+    if (externalAuthAuthenticated.value) {
+      return 'Angemeldet'
+    }
+
+    return 'Gast'
+  })
+
+  function setExternalAuthState(isLoaded: boolean, isAuthenticated: boolean) {
+    externalAuthLoaded.value = isLoaded
+    externalAuthAuthenticated.value = isAuthenticated
   }
 
   function logout() {
     currentUser.value = null
-    localStorage.removeItem(STORAGE_KEY)
+    externalAuthAuthenticated.value = false
   }
 
   function setExternalUser(user: AuthUser) {
     currentUser.value = user
+    externalAuthAuthenticated.value = true
   }
 
   function clearExternalUser() {
-    if (AUTH_ENABLED) {
-      currentUser.value = null
-    }
+    currentUser.value = null
   }
 
   function setExternalSyncing(isSyncing: boolean) {
@@ -98,12 +66,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     currentUser,
-    users,
+    isSyncingExternalUser,
+    externalAuthLoaded,
+    externalAuthAuthenticated,
     isAuthenticated,
+    hasBackendProfile,
     isAdmin,
     displayName,
-    isSyncingExternalUser,
-    login,
+    setExternalAuthState,
     logout,
     setExternalUser,
     clearExternalUser,
