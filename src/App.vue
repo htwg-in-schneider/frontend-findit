@@ -87,7 +87,10 @@ function logout() {
           <RouterLink to="/map">Karte</RouterLink>
           <RouterLink v-if="authStore.isAdmin" to="/admin">Admin</RouterLink>
           <RouterLink :to="{ path: '/', hash: '#kontakt' }">Kontakt</RouterLink>
-          <RouterLink to="/items/new" class="nav-button">Gegenstand melden</RouterLink>
+
+          <RouterLink v-if="isLoggedIn" to="/items/new" class="nav-button">
+            Gegenstand melden
+          </RouterLink>
 
           <RouterLink v-if="!isLoggedIn" to="/login" class="login-link">
             Login

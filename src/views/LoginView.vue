@@ -61,7 +61,6 @@ async function startAuth0Flow(screenHint?: 'signup') {
         audience: AUTH0_AUDIENCE || undefined,
         redirect_uri: AUTH0_REDIRECT_URI,
         screen_hint: screenHint,
-        prompt: 'login',
       },
     })
   } catch (error) {

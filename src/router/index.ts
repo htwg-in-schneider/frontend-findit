@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { authGuard } from '@auth0/auth0-vue'
 import { AUTH_ENABLED } from '../config/auth'
 import { useAuthStore } from '../stores/authStores'
 
@@ -14,6 +15,12 @@ import AdminCategoriesView from '../views/AdminCategoriesView.vue'
 import AdminContactRequestsView from '../views/AdminContactRequestsView.vue'
 import ImprintView from '../views/ImprintView.vue'
 import PrivacyView from '../views/PrivacyView.vue'
+
+const authGuardConfig = AUTH_ENABLED
+  ? {
+      beforeEnter: authGuard,
+    }
+  : {}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -52,6 +59,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/items/:id',
@@ -67,6 +75,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/map',
@@ -81,6 +90,7 @@ const router = createRouter({
         requiresAuth: true,
         requiresAdmin: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/admin/users',
@@ -90,6 +100,7 @@ const router = createRouter({
         requiresAuth: true,
         requiresAdmin: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/admin/categories',
@@ -99,6 +110,7 @@ const router = createRouter({
         requiresAuth: true,
         requiresAdmin: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/admin/contact-requests',
@@ -108,6 +120,7 @@ const router = createRouter({
         requiresAuth: true,
         requiresAdmin: true,
       },
+      ...authGuardConfig,
     },
     {
       path: '/impressum',
