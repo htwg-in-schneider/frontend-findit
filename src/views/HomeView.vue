@@ -4,12 +4,11 @@
       <div class="hero-content">
         <p class="eyebrow">Campus Lost & Found</p>
 
-        <h1>Verloren? Gefunden? findIT hilft.</h1>
+        <h1>Verloren? Gefunden? findIT bringt Dinge zurück.</h1>
 
         <p class="hero-text">
-          findIT unterstützt Studierende dabei, verlorene und gefundene Gegenstände auf dem
-          Campus strukturiert zu melden, zu suchen und wieder an die richtige Person
-          zurückzugeben.
+          findIT hilft Studierenden dabei, verlorene und gefundene Gegenstände auf dem Campus
+          strukturiert zu melden, zu suchen und wieder an die richtige Person zurückzugeben.
         </p>
 
         <div class="actions">
@@ -47,7 +46,7 @@
       <h2 class="section-title">So funktioniert findIT</h2>
       <p class="section-subtitle">
         Die Anwendung verbindet Meldungen zu verlorenen und gefundenen Gegenständen mit Suche,
-        Filtern und strukturierten Eintragsdetails.
+        Filtern, Eintragsdetails und einer interaktiven Kartenansicht.
       </p>
 
       <div class="grid grid-3 feature-grid">
@@ -64,20 +63,83 @@
           <div class="feature-icon">🔎</div>
           <h3>Suchen und filtern</h3>
           <p>
-            Einträge können nach Suchbegriffen sowie Kriterien wie Typ, Kategorie und Status
+            Einträge können nach Suchbegriffen sowie Kriterien wie Typ, Kategorie, Ort und Status
             eingegrenzt werden.
           </p>
         </article>
 
         <article class="card feature-card">
-          <div class="feature-icon">✅</div>
-          <h3>Rückgabe ermöglichen</h3>
+          <div class="feature-icon">🗺️</div>
+          <h3>Auf der Karte anzeigen</h3>
           <p>
-            Durch klare Eintragsdetails und Statusinformationen wird die Rückgabe nachvollziehbar
-            unterstützt.
+            Fund- und Verlustorte werden visuell dargestellt, damit Nutzer Einträge schneller
+            räumlich einordnen können.
           </p>
         </article>
       </div>
+    </div>
+  </section>
+
+  <section id="kontakt" class="page-section contact-section">
+    <div class="container contact-grid">
+      <div>
+        <p class="eyebrow">Kontakt</p>
+        <h2 class="section-title">Fragen oder Hinweise?</h2>
+        <p class="section-subtitle">
+          Über das Kontaktformular kann schnell eine Nachricht an das findIT-Team vorbereitet
+          werden. Der Versand erfolgt über dein eigenes E-Mail-Programm.
+        </p>
+      </div>
+
+      <form
+        class="card contact-form"
+        action="mailto:findit.htwg@example.com"
+        method="post"
+        enctype="text/plain"
+      >
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="name">Name</label>
+            <input id="name" name="Name" type="text" placeholder="Dein Name" required />
+          </div>
+
+          <div class="form-group">
+            <label for="email">E-Mail</label>
+            <input
+              id="email"
+              name="E-Mail"
+              type="email"
+              placeholder="deine.mail@example.com"
+              required
+            />
+          </div>
+
+          <div class="form-group full-width">
+            <label for="subject">Betreff</label>
+            <input
+              id="subject"
+              name="Betreff"
+              type="text"
+              placeholder="Worum geht es?"
+              required
+            />
+          </div>
+
+          <div class="form-group full-width">
+            <label for="message">Nachricht</label>
+            <textarea
+              id="message"
+              name="Nachricht"
+              placeholder="Beschreibe dein Anliegen kurz."
+              required
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="actions form-actions">
+          <button type="submit" class="btn-primary">Nachricht vorbereiten</button>
+        </div>
+      </form>
     </div>
   </section>
 </template>
@@ -97,17 +159,9 @@
   align-items: center;
 }
 
-.eyebrow {
-  color: var(--accent);
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0 0 14px;
-}
-
 .hero h1 {
   margin: 0;
-  font-size: clamp(2.8rem, 6vw, 5rem);
+  font-size: clamp(2.7rem, 6vw, 5rem);
   line-height: 0.95;
   letter-spacing: -0.06em;
 }
@@ -206,12 +260,28 @@
   font-size: 1.5rem;
 }
 
+.contact-section {
+  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(320px, 1.15fr);
+  gap: 40px;
+  align-items: start;
+}
+
+.contact-form {
+  padding: 28px;
+}
+
 @media (max-width: 850px) {
   .hero {
     padding: 56px 0;
   }
 
-  .hero-grid {
+  .hero-grid,
+  .contact-grid {
     grid-template-columns: 1fr;
   }
 

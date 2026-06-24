@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import ActionDialog from '../components/ActionDialog.vue'
 import {
   deleteItem,
-  getItems,
   searchAndFilterItems,
   type Item,
   type ItemStatus,
   type ItemType,
 } from '../services/itemService'
+import { useAuthStore } from '../stores/authStores'
+
+const authStore = useAuthStore()
 
 const query = ref('')
 const selectedType = ref('')
@@ -17,10 +20,31 @@ const selectedStatus = ref('')
 
 const items = ref<Item[]>([])
 const isLoading = ref(false)
+const isDeleting = ref(false)
+
 const errorMessage = ref('')
+const deleteErrorMessage = ref('')
+const selectedDeleteId = ref<number | null>(null)
+
+const isDeleteDialogOpen = computed(() => selectedDeleteId.value !== null)
+
+const isCurrentUserAdmin = computed(() => {
+  return (
+    authStore.currentUser?.role === 'ADMIN' &&
+    authStore.currentUser.email === 'admin@findit.htwg-konstanz.de'
+  )
+})
 
 const categories = computed(() => {
-  return [...new Set(items.value.map((item) => item.category))]
+  const categorySet = new Set<string>()
+
+  items.value.forEach((item) => {
+    if (item.category) {
+      categorySet.add(item.category)
+    }
+  })
+
+  return [...categorySet].sort((first, second) => first.localeCompare(second))
 })
 
 async function loadItems() {
@@ -37,25 +61,58 @@ async function loadItems() {
   } catch (error) {
     console.error(error)
     errorMessage.value =
-      'Die Einträge konnten nicht geladen werden. Bitte prüfe, ob das Backend auf Port 8080 läuft.'
+      'Die Einträge konnten nicht geladen werden. Bitte prüfe, ob das Backend läuft.'
   } finally {
     isLoading.value = false
   }
 }
 
-async function handleDelete(id: number) {
-  const confirmed = confirm('Möchtest du diesen Eintrag wirklich löschen?')
+function canManageItem(item: Item) {
+  if (isCurrentUserAdmin.value) {
+    return true
+  }
 
-  if (!confirmed) {
+  return authStore.currentUser?.id === item.user.id
+}
+
+function openDeleteDialog(id: number) {
+  selectedDeleteId.value = id
+  deleteErrorMessage.value = ''
+}
+
+function closeDeleteDialog() {
+  if (isDeleting.value) {
     return
   }
 
+  selectedDeleteId.value = null
+}
+
+async function deleteSelectedItem() {
+  if (selectedDeleteId.value === null) {
+    return
+  }
+
+  const itemToDelete = items.value.find((item) => item.id === selectedDeleteId.value)
+
+  if (!itemToDelete || !canManageItem(itemToDelete)) {
+    deleteErrorMessage.value = 'Du darfst diesen Eintrag nicht löschen.'
+    selectedDeleteId.value = null
+    return
+  }
+
+  isDeleting.value = true
+  deleteErrorMessage.value = ''
+
   try {
-    await deleteItem(id)
+    await deleteItem(selectedDeleteId.value)
+    selectedDeleteId.value = null
     await loadItems()
   } catch (error) {
     console.error(error)
-    alert('Der Eintrag konnte nicht gelöscht werden.')
+    deleteErrorMessage.value = 'Der Eintrag konnte nicht gelöscht werden.'
+  } finally {
+    isDeleting.value = false
   }
 }
 
@@ -170,6 +227,10 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
         {{ errorMessage }}
       </div>
 
+      <div v-if="deleteErrorMessage" class="card error-box">
+        {{ deleteErrorMessage }}
+      </div>
+
       <div v-if="isLoading" class="card loading-box">
         Einträge werden geladen...
       </div>
@@ -220,14 +281,20 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
               </div>
             </dl>
 
-            <div class="actions">
-              <RouterLink :to="`/items/${item.id}`" class="btn-secondary">Details</RouterLink>
-              <RouterLink :to="`/items/${item.id}/edit`" class="btn-secondary">
-                Bearbeiten
+            <div class="actions card-actions">
+              <RouterLink :to="`/items/${item.id}`" class="btn-secondary">
+                Details
               </RouterLink>
-              <button type="button" class="btn-danger" @click="handleDelete(item.id)">
-                Löschen
-              </button>
+
+              <template v-if="canManageItem(item)">
+                <RouterLink :to="`/items/${item.id}/edit`" class="btn-secondary">
+                  Bearbeiten
+                </RouterLink>
+
+                <button type="button" class="btn-danger" @click="openDeleteDialog(item.id)">
+                  Löschen
+                </button>
+              </template>
             </div>
           </article>
         </div>
@@ -238,6 +305,18 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
         </div>
       </template>
     </div>
+
+    <ActionDialog
+      :is-open="isDeleteDialogOpen"
+      title="Eintrag löschen?"
+      message="Dieser Eintrag wird dauerhaft gelöscht und verschwindet aus der Übersicht."
+      accept-text="Ja, löschen"
+      cancel-text="Abbrechen"
+      variant="danger"
+      :is-loading="isDeleting"
+      @cancel="closeDeleteDialog"
+      @accept="deleteSelectedItem"
+    />
   </section>
 </template>
 
@@ -275,6 +354,10 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
 .results-info {
   margin: 20px 0;
   color: var(--muted);
+}
+
+.results-info strong {
+  color: var(--text);
 }
 
 .items-grid {
@@ -328,6 +411,11 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
 .item-meta dd {
   margin: 4px 0 0;
   font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.card-actions {
+  margin-top: 4px;
 }
 
 .empty-state,
@@ -357,6 +445,25 @@ watch([query, selectedType, selectedCategory, selectedStatus], () => {
 @media (max-width: 850px) {
   .page-header {
     flex-direction: column;
+  }
+
+  .page-header .btn-primary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .item-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .card-actions {
+    flex-direction: column;
+  }
+
+  .card-actions a,
+  .card-actions button {
+    width: 100%;
   }
 }
 </style>

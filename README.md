@@ -1,48 +1,123 @@
-# .
+# findIT Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+findIT ist eine Webanwendung für verlorene und gefundene Gegenstände auf dem Campus. Nutzerinnen und Nutzer können Gegenstände melden, Einträge durchsuchen, Kontaktanfragen senden und mögliche Treffer prüfen. Administratorinnen und Administratoren können zusätzlich Nutzer, Kategorien und Kontaktanfragen verwalten.
 
-## Recommended IDE Setup
+## Technologien
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+* Vue 3
+* TypeScript
+* Vite
+* Vue Router
+* Pinia
+* Leaflet / OpenStreetMap
+* REST-Anbindung an ein Spring-Boot-Backend
 
-## Recommended Browser Setup
+## Lokale Installation
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
+```bash
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+## Lokaler Start
 
-```sh
+```bash
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Das Frontend läuft lokal standardmäßig unter:
 
-```sh
+```
+http://localhost:5173
+```
+
+## Verbindung zum Backend
+
+Die Backend-URL wird über eine Environment Variable gesetzt.
+
+Für lokale Entwicklung liegt diese Datei im Frontend-Projekt:
+
+```
+.env.development
+```
+
+Inhalt:
+
+```env
+VITE_API_BASE_URL=http://localhost:8080/api
+```
+
+Dadurch greift das Frontend lokal auf das Backend unter `http://localhost:8080/api` zu.
+
+Für die produktive Umgebung muss die Variable auf die echte Backend-Adresse zeigen, zum Beispiel:
+
+```env
+VITE_API_BASE_URL=https://findit-backend.example.com/api
+```
+
+## Wichtige Routen
+
+```
+/                         Startseite
+/login                    Login
+/items                    Eintragsübersicht
+/items/new                Gegenstand melden
+/items/:id                Detailseite eines Eintrags
+/items/:id/edit           Eintrag bearbeiten
+/map                      Karte
+/admin                    Admin-Dashboard
+/admin/users              Nutzerverwaltung
+/admin/categories         Kategorienverwaltung
+/admin/contact-requests   Kontaktanfragenverwaltung
+/impressum                Impressum
+/datenschutz              Datenschutzerklärung
+```
+
+## Rollen im Frontend
+
+### Gast
+
+Ein Gast kann die Startseite, Einträge, Detailseiten, die Karte, Impressum und Datenschutzerklärung aufrufen. Außerdem kann ein Gast Kontaktanfragen zu Einträgen senden.
+
+### Nutzer
+
+Ein angemeldeter Nutzer kann zusätzlich eigene Gegenstände melden, eigene Einträge bearbeiten, eigene Einträge löschen und eigene Einträge als zurückgegeben markieren.
+
+### Admin
+
+Ein Admin kann zusätzlich alle Einträge verwalten, Nutzer verwalten, Kategorien verwalten und Kontaktanfragen nachvollziehen und bearbeiten.
+
+## Demo-Zugänge
+
+Für die Entwicklung werden folgende Demo-Zugänge im Frontend angeboten:
+
+| Rolle  | Name           | E-Mail                                                                    |
+| ------ | -------------- | ------------------------------------------------------------------------- |
+| Nutzer | Max Mustermann | [max.mustermann@htwg-konstanz.de](mailto:max.mustermann@htwg-konstanz.de) |
+| Nutzer | Dennis Müller  | [dennis.mueller@htwg-konstanz.de](mailto:dennis.mueller@htwg-konstanz.de) |
+| Admin  | Admin findIT   | [admin@findit.htwg-konstanz.de](mailto:admin@findit.htwg-konstanz.de)     |
+
+Der aktuelle Login ist ein Demo-Login im Frontend. Für eine produktive Anwendung müsste dieser durch eine vollständige Authentifizierung, zum Beispiel über Auth0, ersetzt werden.
+
+## Build für Produktion
+
+```bash
 npm run build
 ```
 
-### Lint with [ESLint](https://eslint.org/)
+Der Produktionsbuild wird im Ordner `dist` erstellt.
 
-```sh
-npm run lint
+## Produktionsbuild lokal testen
+
+```bash
+npm run preview
 ```
+
+## Deployment
+
+Das Frontend soll für die Abgabe als GitHub Page deployed werden. Dafür muss beim Build die produktive Backend-URL gesetzt sein:
+
+```env
+VITE_API_BASE_URL=https://DEINE-BACKEND-ADRESSE/api
+```
+
+Nach Änderung dieser Variable muss das Frontend neu gebaut und neu deployed werden, da Vite Environment Variables beim Build in den Code einbettet.

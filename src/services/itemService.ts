@@ -1,3 +1,7 @@
+import { apiUrl, handleResponse } from '../config/api'
+
+export { ApiError } from '../config/api'
+
 export type ItemType = 'LOST' | 'FOUND'
 export type ItemStatus = 'OPEN' | 'IN_PROGRESS' | 'RETURNED'
 
@@ -30,7 +34,12 @@ export interface ItemInput {
   userId: number
 }
 
-const API_URL = 'http://localhost:8080/api/items'
+export interface ItemFilters {
+  query?: string
+  type?: string
+  category?: string
+  status?: string
+}
 
 export const users: User[] = [
   {
@@ -45,25 +54,17 @@ export const users: User[] = [
   },
 ]
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    throw new Error(`API request failed with status ${response.status}`)
-  }
-
-  return response.json()
-}
-
 export async function getItems(): Promise<Item[]> {
-  return handleResponse<Item[]>(await fetch(API_URL))
+  return handleResponse<Item[]>(await fetch(apiUrl('/items')))
 }
 
 export async function getItemById(id: number): Promise<Item> {
-  return handleResponse<Item>(await fetch(`${API_URL}/${id}`))
+  return handleResponse<Item>(await fetch(apiUrl(`/items/${id}`)))
 }
 
 export async function createItem(input: ItemInput): Promise<Item> {
   return handleResponse<Item>(
-    await fetch(API_URL, {
+    await fetch(apiUrl('/items'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -75,7 +76,7 @@ export async function createItem(input: ItemInput): Promise<Item> {
 
 export async function updateItem(id: number, input: ItemInput): Promise<Item> {
   return handleResponse<Item>(
-    await fetch(`${API_URL}/${id}`, {
+    await fetch(apiUrl(`/items/${id}`), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -86,45 +87,59 @@ export async function updateItem(id: number, input: ItemInput): Promise<Item> {
 }
 
 export async function deleteItem(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}`, {
-    method: 'DELETE',
-  })
-
-  if (!response.ok) {
-    throw new Error(`API request failed with status ${response.status}`)
-  }
+  await handleResponse<void>(
+    await fetch(apiUrl(`/items/${id}`), {
+      method: 'DELETE',
+    }),
+  )
 }
 
-export async function searchAndFilterItems(options: {
-  query?: string
-  type?: string
-  category?: string
-  status?: string
-}): Promise<Item[]> {
+export async function markItemAsReturned(id: number): Promise<Item> {
+  return handleResponse<Item>(
+    await fetch(apiUrl(`/items/${id}/return`), {
+      method: 'PUT',
+    }),
+  )
+}
+
+export async function getPossibleMatches(id: number): Promise<Item[]> {
+  return handleResponse<Item[]>(await fetch(apiUrl(`/items/${id}/matches`)))
+}
+
+export async function searchAndFilterItems(filters: ItemFilters): Promise<Item[]> {
   const params = new URLSearchParams()
 
-  if (options.type) {
-    params.append('type', options.type)
+  if (filters.type) {
+    params.set('type', filters.type)
   }
 
-  if (options.category) {
-    params.append('category', options.category)
+  if (filters.category) {
+    params.set('category', filters.category)
   }
 
-  if (options.status) {
-    params.append('status', options.status)
+  if (filters.status) {
+    params.set('status', filters.status)
   }
 
-  const hasFilters = params.toString().length > 0
+  const hasBackendFilters = params.toString().length > 0
+  const url = hasBackendFilters ? apiUrl(`/items/filter?${params.toString()}`) : apiUrl('/items')
 
-  if (hasFilters) {
-    return handleResponse<Item[]>(await fetch(`${API_URL}/filter?${params.toString()}`))
+  const loadedItems = await handleResponse<Item[]>(await fetch(url))
+
+  const search = filters.query?.trim().toLowerCase()
+
+  if (!search) {
+    return loadedItems
   }
 
-  if (options.query?.trim()) {
-    params.append('query', options.query.trim())
-    return handleResponse<Item[]>(await fetch(`${API_URL}/search?${params.toString()}`))
-  }
-
-  return getItems()
+  return loadedItems.filter((item) => {
+    return (
+      item.title.toLowerCase().includes(search) ||
+      item.description.toLowerCase().includes(search) ||
+      item.location.toLowerCase().includes(search) ||
+      item.category.toLowerCase().includes(search) ||
+      item.user.name.toLowerCase().includes(search) ||
+      item.user.email.toLowerCase().includes(search)
+    )
+  })
 }
