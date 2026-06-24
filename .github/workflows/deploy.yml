@@ -13,16 +13,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages
+  group: pages
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
+    name: Build frontend
     runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -40,17 +37,28 @@ jobs:
       - name: Build frontend
         run: npm run build
         env:
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_AUTH_ENABLED: ${{ secrets.VITE_AUTH_ENABLED }}
+          VITE_AUTH0_DOMAIN: ${{ secrets.VITE_AUTH0_DOMAIN }}
+          VITE_AUTH0_CLIENT_ID: ${{ secrets.VITE_AUTH0_CLIENT_ID }}
+          VITE_AUTH0_AUDIENCE: ${{ secrets.VITE_AUTH0_AUDIENCE }}
+          VITE_AUTH0_REDIRECT_URI: ${{ secrets.VITE_AUTH0_REDIRECT_URI }}
+          VITE_AUTH0_LOGOUT_RETURN_TO: ${{ secrets.VITE_AUTH0_LOGOUT_RETURN_TO }}
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: dist
 
+  deploy:
+    name: Deploy frontend
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+
+    steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
