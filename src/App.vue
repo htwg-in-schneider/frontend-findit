@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useAuth0 } from '@auth0/auth0-vue'
 import Auth0Bridge from './components/Auth0Bridge.vue'
 import { AUTH0_LOGOUT_RETURN_TO, AUTH_ENABLED } from './config/auth'
 import { useAuthStore } from './stores/authStores'
 
+const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const auth0 = AUTH_ENABLED ? useAuth0() : null
+
+const isHomeActive = computed(() => {
+  return route.path === '/' && route.hash !== '#kontakt'
+})
+
+const isContactActive = computed(() => {
+  return route.path === '/' && route.hash === '#kontakt'
+})
 
 const isLoggedIn = computed(() => {
   if (AUTH_ENABLED) {
@@ -34,6 +44,17 @@ const shownName = computed(() => {
 
   return 'Angemeldet'
 })
+
+function goToHome() {
+  router.push('/')
+}
+
+function goToContact() {
+  router.push({
+    path: '/',
+    hash: '#kontakt',
+  })
+}
 
 function logout() {
   authStore.logout()
@@ -81,12 +102,29 @@ function logout() {
           </span>
         </RouterLink>
 
-        <nav class="main-nav">
-          <RouterLink to="/">Startseite</RouterLink>
+        <nav class="main-nav" aria-label="Hauptnavigation">
+          <a
+            href="/"
+            :class="{ 'router-link-active router-link-exact-active': isHomeActive }"
+            @click.prevent="goToHome"
+          >
+            Startseite
+          </a>
+
           <RouterLink to="/items">Einträge</RouterLink>
           <RouterLink to="/map">Karte</RouterLink>
-          <RouterLink v-if="authStore.isAdmin" to="/admin">Admin</RouterLink>
-          <RouterLink :to="{ path: '/', hash: '#kontakt' }">Kontakt</RouterLink>
+
+          <RouterLink v-if="authStore.isAdmin" to="/admin">
+            Admin
+          </RouterLink>
+
+          <a
+            href="#kontakt"
+            :class="{ 'router-link-active router-link-exact-active': isContactActive }"
+            @click.prevent="goToContact"
+          >
+            Kontakt
+          </a>
 
           <RouterLink v-if="isLoggedIn" to="/items/new" class="nav-button">
             Gegenstand melden

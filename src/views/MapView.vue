@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getItems, type Item, type ItemStatus, type ItemType } from '../services/itemService'
@@ -16,13 +16,13 @@ import {
 
 interface MapItem extends Item {
   hasCoordinates: boolean
-  resolvedLatitude: number | null
-  resolvedLongitude: number | null
   markerLatitude: number | null
   markerLongitude: number | null
 }
 
-const campusCenter: L.LatLngExpression = [
+const router = useRouter()
+
+const mapCenter: L.LatLngExpression = [
   MAP_DEFAULT_CENTER.latitude,
   MAP_DEFAULT_CENTER.longitude,
 ]
@@ -79,24 +79,17 @@ async function loadItems() {
 
 function toMapItem(item: Item): MapItem {
   if (hasValidCoordinates(item.latitude, item.longitude)) {
-    const latitude = item.latitude as number
-    const longitude = item.longitude as number
-
     return {
       ...item,
       hasCoordinates: true,
-      resolvedLatitude: latitude,
-      resolvedLongitude: longitude,
-      markerLatitude: latitude,
-      markerLongitude: longitude,
+      markerLatitude: item.latitude,
+      markerLongitude: item.longitude,
     }
   }
 
   return {
     ...item,
     hasCoordinates: false,
-    resolvedLatitude: null,
-    resolvedLongitude: null,
     markerLatitude: null,
     markerLongitude: null,
   }
@@ -106,11 +99,11 @@ function applyMarkerOffsets(mapItems: MapItem[]) {
   const groups = new Map<string, MapItem[]>()
 
   mapItems.forEach((item) => {
-    if (!item.hasCoordinates || item.resolvedLatitude === null || item.resolvedLongitude === null) {
+    if (!item.hasCoordinates || item.latitude === null || item.longitude === null) {
       return
     }
 
-    const key = getCoordinateKey(item.resolvedLatitude, item.resolvedLongitude)
+    const key = getCoordinateKey(item.latitude, item.longitude)
     const group = groups.get(key) ?? []
 
     group.push(item)
@@ -123,14 +116,14 @@ function applyMarkerOffsets(mapItems: MapItem[]) {
     }
 
     group.forEach((item, index) => {
-      if (item.resolvedLatitude === null || item.resolvedLongitude === null) {
+      if (item.latitude === null || item.longitude === null) {
         return
       }
 
       const offset = getMarkerOffset(index, group.length)
 
-      item.markerLatitude = item.resolvedLatitude + offset.latitude
-      item.markerLongitude = item.resolvedLongitude + offset.longitude
+      item.markerLatitude = item.latitude + offset.latitude
+      item.markerLongitude = item.longitude + offset.longitude
     })
   })
 
@@ -143,7 +136,7 @@ function initializeMap() {
   }
 
   leafletMap = L.map(mapContainer.value, {
-    center: campusCenter,
+    center: mapCenter,
     zoom: MAP_DEFAULT_ZOOM,
     minZoom: MAP_MIN_ZOOM,
     maxZoom: MAP_MAX_ZOOM,
@@ -192,6 +185,20 @@ function renderMarkers() {
       activeItemId.value = item.id
     })
 
+    marker.on('popupopen', () => {
+      const popupElement = marker.getPopup()?.getElement()
+      const detailsLink = popupElement?.querySelector<HTMLAnchorElement>('[data-item-details-link]')
+
+      detailsLink?.addEventListener(
+        'click',
+        (event) => {
+          event.preventDefault()
+          router.push(`/items/${item.id}`)
+        },
+        { once: true },
+      )
+    })
+
     marker.addTo(markerGroup as L.LayerGroup)
     markersByItemId.set(item.id, marker)
   })
@@ -202,7 +209,7 @@ function renderMarkers() {
       maxZoom: 18,
     })
   } else {
-    leafletMap.setView(campusCenter, MAP_DEFAULT_ZOOM)
+    leafletMap.setView(mapCenter, MAP_DEFAULT_ZOOM)
   }
 }
 
@@ -240,7 +247,7 @@ function createPopupHtml(item: MapItem) {
       <strong>${escapeHtml(item.title)}</strong>
       <span>${typeLabel} · ${statusLabel}</span>
       <p>${escapeHtml(item.location)} · ${escapeHtml(item.category)}</p>
-      <a href="${import.meta.env.BASE_URL}items/${item.id}">Details öffnen</a>
+      <a href="#" data-item-details-link="${item.id}">Details öffnen</a>
     </article>
   `
 }
@@ -320,9 +327,8 @@ onBeforeUnmount(() => {
           <p class="eyebrow">Campuskarte</p>
           <h1 class="section-title">Fundorte und Verlustorte auf der Karte</h1>
           <p class="section-subtitle">
-            Die Karte zeigt nur Einträge mit gespeicherter Kartenposition. Einträge ohne
-            Koordinaten bleiben in der Liste sichtbar und können über die Detailseite geprüft
-            oder später bearbeitet werden.
+            Die Karte zeigt Einträge mit gespeicherter Kartenposition. Neue Meldungen erhalten ihre
+            Position über die Ortssuche im Meldeformular.
           </p>
         </div>
 
@@ -596,15 +602,9 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-weight: 900;
   cursor: pointer;
-  transition:
-    background 0.18s ease,
-    color 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s ease;
 }
 
 .filter-chip:hover {
-  transform: translateY(-1px);
   border-color: rgba(37, 99, 235, 0.35);
   color: var(--primary);
 }
@@ -637,16 +637,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 20px;
   background: white;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease,
-    background 0.18s ease;
 }
 
 .map-item:hover,
 .map-item.active {
-  transform: translateY(-2px);
   border-color: rgba(37, 99, 235, 0.35);
   background: #eff6ff;
   box-shadow: var(--shadow-sm);
@@ -694,18 +688,10 @@ onBeforeUnmount(() => {
   color: #475569;
 }
 
-.map-item-content {
-  min-width: 0;
-}
-
 .map-item-content strong,
 .map-item-content span,
 .map-item-content small {
   display: block;
-}
-
-.map-item-content strong {
-  margin-bottom: 4px;
 }
 
 .map-item-content span {
@@ -716,7 +702,6 @@ onBeforeUnmount(() => {
 .map-item-content small {
   margin-top: 4px;
   color: var(--muted);
-  overflow-wrap: anywhere;
 }
 
 .map-item-link {
@@ -725,10 +710,6 @@ onBeforeUnmount(() => {
   color: var(--primary);
   font-weight: 900;
   text-decoration: none;
-}
-
-.map-item-link:hover {
-  text-decoration: underline;
 }
 
 .source-warning {
@@ -742,7 +723,6 @@ onBeforeUnmount(() => {
   background: #fffbeb;
   color: #92400e;
   font-weight: 800;
-  line-height: 1.5;
 }
 
 .map-card {
@@ -814,7 +794,6 @@ onBeforeUnmount(() => {
   border-radius: 0 0 6px 0;
   background: #b91c1c;
   transform: rotate(45deg);
-  box-shadow: 10px 12px 24px rgba(15, 23, 42, 0.18);
 }
 
 :global(.findit-map-marker.found .findit-marker-icon) {
@@ -841,7 +820,6 @@ onBeforeUnmount(() => {
 
 :global(.findit-popup-card strong) {
   color: #0f172a;
-  font-size: 0.98rem;
 }
 
 :global(.findit-popup-card span) {
@@ -860,10 +838,6 @@ onBeforeUnmount(() => {
   color: #2563eb;
   font-weight: 900;
   text-decoration: none;
-}
-
-:global(.findit-popup-card a:hover) {
-  text-decoration: underline;
 }
 
 @media (max-width: 950px) {
