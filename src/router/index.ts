@@ -9,6 +9,7 @@ import ItemsView from '../views/ItemsView.vue'
 import ItemDetailView from '../views/ItemDetailView.vue'
 import ItemFormView from '../views/ItemFormView.vue'
 import MapView from '../views/MapView.vue'
+import ProfileView from '../views/ProfileView.vue'
 import AdminDashboardView from '../views/AdminDashboardView.vue'
 import AdminUsersView from '../views/AdminUsersView.vue'
 import AdminCategoriesView from '../views/AdminCategoriesView.vue'
@@ -46,6 +47,15 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginView,
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: ProfileView,
+      meta: {
+        requiresAuth: true,
+      },
+      ...authGuardConfig,
     },
     {
       path: '/items',

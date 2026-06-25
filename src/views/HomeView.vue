@@ -1,5 +1,55 @@
 <script setup lang="ts">
+import { reactive, ref } from 'vue'
 import MiniMapPreview from '../components/MiniMapPreview.vue'
+
+const contactForm = reactive({
+  name: '',
+  email: '',
+  subject: '',
+  message: '',
+})
+
+const contactErrorMessage = ref('')
+const contactSuccessMessage = ref('')
+
+function prepareContactMail() {
+  contactErrorMessage.value = ''
+  contactSuccessMessage.value = ''
+
+  if (
+    !contactForm.name.trim() ||
+    !contactForm.email.trim() ||
+    !contactForm.subject.trim() ||
+    !contactForm.message.trim()
+  ) {
+    contactErrorMessage.value = 'Bitte fülle alle Felder aus.'
+    return
+  }
+
+  if (!contactForm.email.includes('@')) {
+    contactErrorMessage.value = 'Bitte gib eine gültige E-Mail-Adresse ein.'
+    return
+  }
+
+  const recipients = 'haris.melunovic@htwg-konstanz.de'
+  const cc = 'amil.melunovic@htwg-konstanz.de'
+  const subject = encodeURIComponent(`[findIT] ${contactForm.subject.trim()}`)
+  const body = encodeURIComponent(
+    [
+      'Hallo findIT-Team,',
+      '',
+      contactForm.message.trim(),
+      '',
+      '---',
+      `Name: ${contactForm.name.trim()}`,
+      `E-Mail: ${contactForm.email.trim()}`,
+    ].join('\n'),
+  )
+
+  window.location.href = `mailto:${recipients}?cc=${encodeURIComponent(cc)}&subject=${subject}&body=${body}`
+
+  contactSuccessMessage.value = 'Dein E-Mail-Programm wurde geöffnet.'
+}
 </script>
 
 <template>
@@ -91,24 +141,37 @@ import MiniMapPreview from '../components/MiniMapPreview.vue'
         </p>
       </div>
 
-      <form
-        class="card contact-form"
-        action="mailto:findit.htwg@example.com"
-        method="post"
-        enctype="text/plain"
-      >
+      <form class="card contact-form" @submit.prevent="prepareContactMail" novalidate>
+        <div v-if="contactErrorMessage" class="contact-error">
+          {{ contactErrorMessage }}
+        </div>
+
+        <div v-if="contactSuccessMessage" class="contact-success">
+          {{ contactSuccessMessage }}
+        </div>
+
         <div class="form-grid">
           <div class="form-group">
             <label for="name">Name</label>
-            <input id="name" name="Name" type="text" placeholder="Dein Name" required />
+            <input
+              id="name"
+              v-model="contactForm.name"
+              name="name"
+              type="text"
+              autocomplete="name"
+              placeholder="Dein Name"
+              required
+            />
           </div>
 
           <div class="form-group">
             <label for="email">E-Mail</label>
             <input
               id="email"
-              name="E-Mail"
+              v-model="contactForm.email"
+              name="email"
               type="email"
+              autocomplete="email"
               placeholder="deine.mail@example.com"
               required
             />
@@ -118,7 +181,8 @@ import MiniMapPreview from '../components/MiniMapPreview.vue'
             <label for="subject">Betreff</label>
             <input
               id="subject"
-              name="Betreff"
+              v-model="contactForm.subject"
+              name="subject"
               type="text"
               placeholder="Worum geht es?"
               required
@@ -129,7 +193,9 @@ import MiniMapPreview from '../components/MiniMapPreview.vue'
             <label for="message">Nachricht</label>
             <textarea
               id="message"
-              name="Nachricht"
+              v-model="contactForm.message"
+              name="message"
+              autocomplete="off"
               placeholder="Beschreibe dein Anliegen kurz."
               required
             ></textarea>
@@ -236,6 +302,26 @@ import MiniMapPreview from '../components/MiniMapPreview.vue'
 
 .contact-form {
   padding: 28px;
+}
+
+.contact-error,
+.contact-success {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  font-weight: 800;
+}
+
+.contact-error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.contact-success {
+  border: 1px solid #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
 }
 
 @media (max-width: 850px) {

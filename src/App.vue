@@ -11,13 +11,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 const auth0 = AUTH_ENABLED ? useAuth0() : null
 
-const isHomeActive = computed(() => {
-  return route.path === '/' && route.hash !== '#kontakt'
-})
-
-const isContactActive = computed(() => {
-  return route.path === '/' && route.hash === '#kontakt'
-})
+const isHomeActive = computed(() => route.path === '/' && route.hash !== '#kontakt')
+const isContactActive = computed(() => route.path === '/' && route.hash === '#kontakt')
 
 const isLoggedIn = computed(() => {
   if (AUTH_ENABLED) {
@@ -43,6 +38,10 @@ const shownName = computed(() => {
   }
 
   return 'Angemeldet'
+})
+
+const shownColor = computed(() => {
+  return authStore.currentUser?.displayColor || '#2563eb'
 })
 
 function goToHome() {
@@ -135,8 +134,18 @@ function logout() {
           </RouterLink>
 
           <div v-else class="auth-pill">
-            <span>{{ shownName }}</span>
-            <button type="button" @click="logout">Logout</button>
+            <RouterLink
+              to="/profile"
+              class="profile-name-link"
+              :style="{ color: shownColor }"
+              title="Profil bearbeiten"
+            >
+              {{ shownName }}
+            </RouterLink>
+
+            <button type="button" @click="logout">
+              Logout
+            </button>
           </div>
         </nav>
       </div>
@@ -176,9 +185,8 @@ function logout() {
   box-shadow: var(--shadow-sm);
 }
 
-.auth-pill span {
+.profile-name-link {
   max-width: 150px;
-  color: var(--muted);
   font-size: 0.9rem;
   font-weight: 900;
   white-space: nowrap;
@@ -206,7 +214,7 @@ function logout() {
     justify-content: space-between;
   }
 
-  .auth-pill span {
+  .profile-name-link {
     max-width: none;
   }
 }

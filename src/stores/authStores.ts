@@ -9,6 +9,7 @@ export interface AuthUser {
   name: string
   email: string
   role: UserRole
+  displayColor: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -26,7 +27,6 @@ export const useAuthStore = defineStore('auth', () => {
   })
 
   const hasBackendProfile = computed(() => currentUser.value !== null)
-
   const isAdmin = computed(() => currentUser.value?.role === 'ADMIN')
 
   const displayName = computed(() => {
@@ -41,6 +41,10 @@ export const useAuthStore = defineStore('auth', () => {
     return 'Gast'
   })
 
+  const displayColor = computed(() => {
+    return currentUser.value?.displayColor || '#2563eb'
+  })
+
   function setExternalAuthState(isLoaded: boolean, isAuthenticated: boolean) {
     externalAuthLoaded.value = isLoaded
     externalAuthAuthenticated.value = isAuthenticated
@@ -52,8 +56,18 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function setExternalUser(user: AuthUser) {
-    currentUser.value = user
+    currentUser.value = {
+      ...user,
+      displayColor: user.displayColor || '#2563eb',
+    }
     externalAuthAuthenticated.value = true
+  }
+
+  function updateCurrentUser(user: AuthUser) {
+    currentUser.value = {
+      ...user,
+      displayColor: user.displayColor || '#2563eb',
+    }
   }
 
   function clearExternalUser() {
@@ -73,9 +87,11 @@ export const useAuthStore = defineStore('auth', () => {
     hasBackendProfile,
     isAdmin,
     displayName,
+    displayColor,
     setExternalAuthState,
     logout,
     setExternalUser,
+    updateCurrentUser,
     clearExternalUser,
     setExternalSyncing,
   }

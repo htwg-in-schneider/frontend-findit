@@ -45,6 +45,7 @@ async function syncBackendProfile() {
       name: profile.name,
       email: profile.email,
       role: profile.role,
+      displayColor: profile.displayColor,
     })
   } catch (error) {
     console.error('Backend-Profil konnte nicht geladen werden:', error)
